@@ -1,12 +1,14 @@
 module Tab1
     USE STORAGE
+    USE Emath
+    USE OMP_LIB
 	implicit none 
     !? Затабулированная функция для вычисления интегралла (a - b * cos(phi))
 
-    real(8) :: Tab1_R1 = 15.0_8
-    real(8) :: Tab1_R2 = 15.0_8
-    integer(4) :: Tab1_n1 = 100
-    integer(4) :: Tab1_n2 = 100
+    real(8) :: Tab1_R1 = 20.0_8
+    real(8) :: Tab1_R2 = 20.0_8
+    integer(4) :: Tab1_n1 = 1000
+    integer(4) :: Tab1_n2 = 1000
 
     real(8), allocatable :: Omega1(:, :)
 
@@ -80,13 +82,17 @@ module Tab1
     subroutine Tab1_Set()
 
         integer(4) :: i, j, k, n3
-        real(8) :: phi, dphi, S, a, b, u
+        real(8) :: phi, dphi, S, a, b, u, r
 
         ALLOCATE(Omega1(Tab1_n1, Tab1_n2))
 		Omega1 = 0.0
 
         n3 = 200
         dphi = par_pi/n3
+
+        !$omp parallel
+
+		!$omp do private(j, k, phi, S, a, b, u, r) schedule(dynamic, 3)
         do i = 1, Tab1_n1
             do j = 1, Tab1_n2
                 S = 0.0
@@ -100,9 +106,15 @@ module Tab1
                     S = S + u * sig(u) * dphi
                 end do
                 Omega1(i, j) = S
+                !!r = sqrt(2 * b/(a + b))
+                !!Omega1(i, j) = 2 * sqrt(a + b) * (elliptic_inc_ek(par_pi/2, r) - elliptic_inc_ek(0.0_8, r))
+                
 
             end do
         end do
+        !$omp end do
+
+		!$omp end parallel
 
     end subroutine Tab1_Set
 

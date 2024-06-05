@@ -10,27 +10,33 @@ module STORAGE
 	integer(4) :: par_ch1(36) = 0
 
 	real(8), allocatable :: time_step(:)
-	integer(4), allocatable :: step_algoritm(:, :)
+	integer(4), allocatable :: step_algoritm(:, :)  ! (f%par_nv1, n)
+
+	real(8), allocatable :: QQ(:, :, :)   ! приращение функции распределения между шагами
+
+	real(8) :: pl_rho = 1.0
+	real(8) :: pl_u = 0.963449
+	real(8) :: pl_p = 3.06593096_8
 	
 	
 	TYPE DistF 
-		integer(4) :: par_n = 600
-		integer(4) :: par_nv1 = 36   !! ДОЛЖНО БЫТЬ ЧЁТНЫМ
-		integer(4) :: par_nv2 = 36
+		integer(4) :: par_n = 400
+		integer(4) :: par_nv1 = 40   !! ДОЛЖНО БЫТЬ ЧЁТНЫМ  (если поменяем, нужно менять файл time_step)
+		integer(4) :: par_nv2 = 26
 	
-		real(8) :: par_L = -1.0_8
-		real(8) :: par_R = 1.0_8
-		real(8) :: par_Lv1 = -2.3_8
-		real(8) :: par_Rv1 = 2.3_8
+		real(8) :: par_L = -0.01_8
+		real(8) :: par_R = 1.01_8
+		real(8) :: par_Lv1 = -5.0_8! -3.2_8
+		real(8) :: par_Rv1 = 5.0_8
 		real(8) :: par_Lv2 = 0.0_8
-		real(8) :: par_Rv2 = 2.3_8
+		real(8) :: par_Rv2 = 4.0_8
 		
-		real(8) :: par_Usr = 0.0_8
+		real(8) :: par_Usr = 2.54351_8
 		real(8) :: par_c = 1.0_8
 	
 		real(8), allocatable :: DistF(:, :, :)   ! Частицы (par_nv1, par_nv2, par_n) = V1, V2, X
 		real(8), allocatable :: Q1m(:, :, :)   ! Где сложный интегралл с функцией распределения водорода
-		real(8), allocatable :: Q1p(:)   ! Где в интеграле фунция распределения протонов
+		real(8), allocatable :: Q1p(:, :, :)   ! Где в интеграле фунция распределения протонов
 	END TYPE DistF
 
 
@@ -62,6 +68,8 @@ module STORAGE
 		real(8) :: sig
 		
 		sig = (1.0 - par_a_2 * log(x))**2
+		!sig = (1.0 - 0.135838_8 * log(x/1.33301_8))**2
+		!sig = 1.0_8
 	end function sig
 
 	

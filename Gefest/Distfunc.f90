@@ -4,6 +4,8 @@ module Distfunc
 	USE My_func
 	USE cgod
 	USE Tab1
+	USE OMP_LIB
+	USE Emath
 	implicit none
 	
 	contains
@@ -64,7 +66,11 @@ module Distfunc
 		n = 0
 		allocate(f%DistF(f%par_nv1, f%par_nv2, f%par_n))
 		allocate(f%Q1m(f%par_nv1, f%par_nv2, f%par_n))
-		allocate(f%Q1p(f%par_n))
+		allocate(f%Q1p(f%par_nv1, f%par_nv2, f%par_n))
+
+		if(ALLOCATED(QQ) == .False.) then
+			allocate(QQ(f%par_nv1, f%par_nv2, f%par_n))
+		end if
 		
 		f%Q1m = 0.0
 		f%Q1p = 0.0
@@ -123,14 +129,14 @@ module Distfunc
 
 		! Заполнения начальных условий
 		do i = 1, g%par_n - 1
-			g%par(1, i, 1) = 1.0_8
-			g%par(1, i, 2) = 1.0_8
+			g%par(1, i, 1) = pl_rho
+			g%par(1, i, 2) = pl_rho
 
-			g%par(2, i, 1) = 0.0_8
-			g%par(2, i, 2) = 0.0_8
+			g%par(2, i, 1) = pl_u
+			g%par(2, i, 2) = pl_u
 
-			g%par(3, i, 1) = 0.3_8
-			g%par(3, i, 2) = 0.3_8
+			g%par(3, i, 1) = pl_p
+			g%par(3, i, 2) = pl_p
 		end do
 
 
@@ -531,9 +537,15 @@ module Distfunc
 		TYPE (DistF), intent(in out) :: ff1, ff2, ff3
 		real(8), intent(in out) :: TT  ! Общее время решения
 		integer :: now
-		integer :: i, j, k, st
+		integer :: i, j, k, st, step, m, nnn
 		integer :: nn(ff1%par_nv1)
-		real(8) :: dt, Vx_max, dx, nu, Vx, Vr, Time, Vx_min
+		real(8) :: dt_global, Vx_max, dx, nu, Vx, Vr, Time, Vx_min, dt, T1, T2
+		real(8) :: nu_ex, N_ex, x
+		real(8) :: proton(3, ff1%par_n)  !(rho, u, cp)
+		real(8) :: par(3), dQ
+		logical :: metod_ytochn
+ 
+		metod_ytochn = .True.   !! Метод Королькова аналитического уточнения функции распределения 
 
 		st = 1
 		do i = ff1%par_nv1/2 + 1, ff1%par_nv1
@@ -547,86 +559,178 @@ module Distfunc
 		end do
 
 		dx = (ff1%par_R - ff1%par_L)/ff1%par_n
+
 		call Get_param_Vx(ff1, ff1%par_nv1, Vx_max)
+		dt_global = dx/dabs(Vx_max)                                    ! Шаг по времени (для функции распределения)
+		call Get_param_Vx(ff1, 1, Vx_max)
+		dt_global = min(dt_global, dx/dabs(Vx_max))
+		dt_global = dt_global/7
+
 		call Get_param_Vx(ff1, ff1%par_nv1/2 + 1, Vx_min)
-		dt = dx/Vx_min                                    ! Шаг по времени (для функции распределения)
-		Time = 0.0
+		if(metod_ytochn) dt_global = dx/Vx_min                                    ! Шаг по времени (для функции распределения)
+		
+		if (metod_ytochn) then
+			TT = dt_global
+		else
+			TT = dt_global * 300
+		end if
+		T1 = 0.0
+		now = 1
 
+		! Сохраняем исходную функцию распределение (чтобы от неё шагать точно)
+		do i = 1, ff1%par_nv1
+			do k = 3, ff1%par_n-2
+				do j = 1, ff1%par_nv2
+					ff3%DistF(i, j, k) = ff1%DistF(i, j, k)
+				end do
+			end do
+		end do
 
-		do while(Time < TT)
+		QQ = 0.0_8
+		!! Заполним параметры протонов (концентрацию)
+		do k = 1, ff1%par_n	
+			call Get_param_x(ff1, k, x)
+			call Get_GD(x, gd1, par, now)
+			proton(1, k) = par(1)
+			proton(2, k) = par(2)
+			if(par(1) > 0.000001) then
+				proton(3, k) = sqrt(par(3)/par(1))
+			else
+				proton(3, k) = 1.0
+			end if
+		end do
+
+		nnn = 300
+		if(metod_ytochn) nnn = size(time_step)
+
+		do step = 1, nnn
+			if(mod(step, 50) == 0) print*, "step = ", step, "From = ", nnn
+
+			if(metod_ytochn) then
+				T2 = time_step(step) * dt_global
+			else
+				T2 = dt_global * step
+			end if
+
+			dt = T2 - T1
+			T1 = T2
+			nu_ex = 0.0_8
+
+			! !! Заполним параметры протонов (концентрацию)
+			! do k = 1, ff1%par_n	
+			! 	call Get_param_x(ff1, k, x)
+			! 	call Get_GD(x, gd1, par, now)
+			! 	proton(1, k) = par(1)
+			! 	proton(2, k) = par(2)
+			! 	if(par(1) > 0.000001) then
+			! 		proton(3, k) = sqrt(par(3)/par(1))
+			! 	else
+			! 		proton(3, k) = 1.0
+			! 	end if
+			! end do
+
+			call Calc_Q(ff1, gd1, 1)
+
+			! Делаем сначала стандартный шаг по времени dt
+			do i = 1, ff1%par_nv1
+				call Get_param_Vx(ff1, i, Vx)
+				nu = Vx * dt/dx
+
+				if(dabs(nu) > 2.0) print*, "PROBLEM 9u97oph[ijouhi"
+
+				do k = 3, ff1%par_n-2
+					do j = 1, ff1%par_nv2
+						call Get_param_Vr(ff1, j, Vr)
+						nu_ex = proton(1, k) * ff1%Q1p(i, j, k)
+						N_ex = proton(1, k) * f_maxwell(Vx, Vr, proton(2, k), proton(3, k)) * ff1%Q1m(i, j, k)
+
+						if(metod_ytochn == .False.) then
+							if(Vx > 0.0) then
+								
+								!dQ = dt * proton(1, k) * (-ff1%Q1p(i, j, k) * ff1%DistF(i, j, k) + &
+								!						f_maxwell(Vx, Vr, proton(2, k), proton(3, k)) * ff1%Q1m(i, j, k))
+								ff2%DistF(i, j, k) = ff1%DistF(i, j, k) - nu * (ff1%DistF(i, j, k) - ff1%DistF(i, j, k-1)) + &
+									0.5_8 * nu * (nu - 1.0_8) * (ff1%DistF(i, j, k) - 2.0_8 * ff1%DistF(i, j, k - 1) + ff1%DistF(i, j, k-2))! &
+									!+ dQ
+								!QQ(i, j, k) = QQ(i, j, k) + dQ 
+								if(ff2%DistF(i, j, k) < 0.0) ff2%DistF(i, j, k) = 0.0
+							else
+								!dQ = dt * proton(1, k) * (-ff1%Q1p(i, j, k) * ff1%DistF(i, j, k) + &
+								!							f_maxwell(Vx, Vr, proton(2, k), proton(3, k)) * ff1%Q1m(i, j, k))
+								ff2%DistF(i, j, k) = ff1%DistF(i, j, k) + nu * (3.0_8/2.0_8 * ff1%DistF(i, j, k) - &
+									2.0_8 * ff1%DistF(i, j, k + 1) + 0.5_8 * ff1%DistF(i, j, k + 2)) + &
+									0.5_8 * nu**2 * (ff1%DistF(i, j, k) - 2.0_8 * ff1%DistF(i, j, k + 1) + ff1%DistF(i, j, k+2))! &
+									!+ dQ
+								!QQ(i, j, k) = QQ(i, j, k) + dQ 
+								if(ff2%DistF(i, j, k) < 0.0) ff2%DistF(i, j, k) = 0.0
+							end if
+						else
+							dQ = dt * (-nu_ex * ff1%DistF(i, j, k) + N_ex)
+							if(Vx > 0.0) then
+								ff2%DistF(i, j, k) = ff1%DistF(i, j, k) - nu * (ff1%DistF(i, j, k) - ff1%DistF(i, j, k-1)) + &
+									0.5_8 * nu * (nu - 1.0_8) * (ff1%DistF(i, j, k) - 2.0_8 * ff1%DistF(i, j, k - 1) + ff1%DistF(i, j, k-2)) &
+									+ dQ
+								QQ(i, j, k) = QQ(i, j, k) + dQ 
+							else
+								ff2%DistF(i, j, k) = ff1%DistF(i, j, k) + nu * (3.0_8/2.0_8 * ff1%DistF(i, j, k) - &
+									2.0_8 * ff1%DistF(i, j, k + 1) + 0.5_8 * ff1%DistF(i, j, k + 2)) + &
+									0.5_8 * nu**2 * (ff1%DistF(i, j, k) - 2.0_8 * ff1%DistF(i, j, k + 1) + ff1%DistF(i, j, k+2)) &
+									+ dQ
+								QQ(i, j, k) = QQ(i, j, k) + dQ 
+							end if
+							if(ff2%DistF(i, j, k) < 0.0) ff2%DistF(i, j, k) = 0.0
+						end if
+
+						if(metod_ytochn == .False.) then
+							if(nu_ex > 0.000001) then
+								ff2%DistF(i, j, k) = ff2%DistF(i, j, k) * exp(-dt * nu_ex) + N_ex/nu_ex * (1.0 - exp(-dt * nu_ex))
+							end if
+						end if
+
+						if(nu_ex < 0.0) then
+							print*, "ERROR 90w48y79hgw8hpf9f"
+						end if
+						!if(ff2%DistF(i, j, k) < 0.0) ff2%DistF(i, j, k) = 0.0
+					end do ! j
+				end do! k
+			end do !  i
+
+			!! Уточняем функцию для нужных i
+			if(metod_ytochn) then
+				do st = 1, ff1%par_nv1
+					i = step_algoritm(st, step)
+					if(i == 0) EXIT
+					call Get_param_Vx(ff1, i, Vx)
+					do k = 3, ff1%par_n-2
+						do j = 1, ff1%par_nv2
+							if(Vx > 0.0) then
+								ff2%DistF(i, j, k) = ff3%DistF(i, j, k-1)  + QQ(i, j, k)
+							else
+								ff2%DistF(i, j, k) = ff3%DistF(i, j, k+1) + QQ(i, j, k)
+							end if
+							QQ(i, j, k) = 0.0_8
+							if(ff2%DistF(i, j, k) < 0.0) ff2%DistF(i, j, k) = 0.0
+						end do
+					end do
+
+					do k = 3, ff1%par_n-2
+						do j = 1, ff1%par_nv2
+							ff3%DistF(i, j, k) = ff2%DistF(i, j, k)
+						end do
+					end do
+				end do
+			end if
 
 			do i = 1, ff1%par_nv1
-				do k = 3, ff1%par_n-3
+				do k = 3, ff1%par_n-2
 					do j = 1, ff1%par_nv2
-						ff3%DistF(i, j, k) = ff1%DistF(i, j, k)
+						ff1%DistF(i, j, k) = ff2%DistF(i, j, k)
 					end do
 				end do
 			end do
 
-			do st = 1, ff1%par_nv1 - 1   ! Делаем столько шагов по времени (разбиваем шаги по времени на партии)
-				Time = Time + dt
-				do i = 1, ff1%par_nv1
-					call Get_param_Vx(ff1, i, Vx)
-					nu = Vx * dt/dx
-					do k = 3, ff1%par_n-3
-						do j = 1, ff1%par_nv2
-							call Get_param_Vr(ff1, j, Vr)
-							
-							if(mod(st, ff1%par_nv1 - nn(i)) == 0) then
-								if(Vx > 0.0) then
-									nu = 1.0
-									ff2%DistF(i, j, k) = ff3%DistF(i, j, k) - nu * (ff3%DistF(i, j, k) - ff3%DistF(i, j, k-1)) + &
-										0.5_8 * nu * (nu - 1.0_8) * (ff3%DistF(i, j, k) - 2.0_8 * ff3%DistF(i, j, k - 1) + ff3%DistF(i, j, k-2)) !&
-										!+ time * proton(1, k) * (-ff1%Q1p(k) * ff1%DistF(i, j, k) + &
-										!					f_maxwell(Vx, Vr, proton(2, k), proton(3, k)) * ff1%Q1m(i, j, k))
-								else
-									nu = -1.0
-									ff2%DistF(i, j, k) = ff3%DistF(i, j, k) + nu * (3.0_8/2.0_8 * ff3%DistF(i, j, k) - &
-										2.0_8 * ff3%DistF(i, j, k + 1) + 0.5_8 * ff3%DistF(i, j, k + 2)) + &
-										0.5_8 * nu**2 * (ff3%DistF(i, j, k) - 2.0_8 * ff3%DistF(i, j, k + 1) + ff3%DistF(i, j, k+2))! &
-										!+ time * proton(1, k) * (-ff1%Q1p(k) * ff1%DistF(i, j, k) + &
-										!						f_maxwell(Vx, Vr, proton(2, k), proton(3, k)) * ff1%Q1m(i, j, k))
-								end if
-							else
-								if(Vx > 0.0) then
-									ff2%DistF(i, j, k) = ff1%DistF(i, j, k) - nu * (ff1%DistF(i, j, k) - ff1%DistF(i, j, k-1)) + &
-										0.5_8 * nu * (nu - 1.0_8) * (ff1%DistF(i, j, k) - 2.0_8 * ff1%DistF(i, j, k - 1) + ff1%DistF(i, j, k-2)) !&
-										!+ time * proton(1, k) * (-ff1%Q1p(k) * ff1%DistF(i, j, k) + &
-										!					f_maxwell(Vx, Vr, proton(2, k), proton(3, k)) * ff1%Q1m(i, j, k))
-								else
-									ff2%DistF(i, j, k) = ff1%DistF(i, j, k) + nu * (3.0_8/2.0_8 * ff1%DistF(i, j, k) - &
-										2.0_8 * ff1%DistF(i, j, k + 1) + 0.5_8 * ff1%DistF(i, j, k + 2)) + &
-										0.5_8 * nu**2 * (ff1%DistF(i, j, k) - 2.0_8 * ff1%DistF(i, j, k + 1) + ff1%DistF(i, j, k+2))! &
-										!+ time * proton(1, k) * (-ff1%Q1p(k) * ff1%DistF(i, j, k) + &
-										!						f_maxwell(Vx, Vr, proton(2, k), proton(3, k)) * ff1%Q1m(i, j, k))
-								end if
-							end if
-							if(ff2%DistF(i, j, k) < 0.0) ff2%DistF(i, j, k) = 0.0
-						end do ! j
-					end do! k
-
-					if(mod(st, ff1%par_nv1 - nn(i)) == 0) then
-						do k = 3, ff1%par_n-3
-							do j = 1, ff1%par_nv2
-								ff3%DistF(i, j, k) = ff2%DistF(i, j, k)
-							end do
-						end do
-					end if
-
-				end do !  i
-
-				do i = 1, ff1%par_nv1
-					do k = 3, ff1%par_n-3
-						do j = 1, ff1%par_nv2
-							ff1%DistF(i, j, k) = ff2%DistF(i, j, k)
-						end do
-					end do
-				end do
-
-			end do ! st
 		end do ! while
 
-		TT = time
 	end subroutine Integrate_Protiv_potoka
 
 	subroutine Integrate_Protiv_potoka2(ff1, ff2, dt, now)
@@ -838,7 +942,7 @@ module Distfunc
 						ptr_f2%DistF(i, j, k) = ptr_f1%DistF(i, j, k) + nu * (3.0_8/2.0_8 * ptr_f1%DistF(i, j, k) - &
 						2.0_8 * ptr_f1%DistF(i, j, k + 1) + 0.5_8 * ptr_f1%DistF(i, j, k + 2)) + &
 						0.5_8 * nu**2 * (ptr_f1%DistF(i, j, k) - 2.0_8 * ptr_f1%DistF(i, j, k + 1) + ptr_f1%DistF(i, j, k+2)) &
-						+ time * proton(1, k) * (-ff1%Q1p(k) * ptr_f1%DistF(i, j, k) + &
+						+ time * proton(1, k) * (-ff1%Q1p(i, j, k) * ptr_f1%DistF(i, j, k) + &
 												f_maxwell(Vx, Vr, proton(2, k), proton(3, k)) * ff1%Q1m(i, j, k))
 					end do
 				end do
@@ -871,20 +975,26 @@ module Distfunc
 		integer(4), intent(in) :: now
 		integer(4) :: k, i, j, ii, jj
 		real(8) :: x, Vx, Vr, Wx, Wr
-		real(8) :: dWx, dWr, A, B
+		real(8) :: dWx, dWr, A, B, r, ecint
 		real(8) :: par(3)
-		real(8) :: u, S, cp, uz
+		real(8) :: u, S, cp, uz, SS, tab
 
 		dWx = (ff%par_Rv1 - ff%par_Lv1)/(ff%par_nv1)
 		dWr = (ff%par_Rv2 - ff%par_Lv2)/(ff%par_nv2)
 
-		do k = 1, ff%par_n
+		ff%Q1m = 0.0
+		ff%Q1p = 0.0
+
+		!$omp parallel
+
+		!$omp do private(i, j, ii, jj, x, Vx, Vr, Wx, Wr, A, B, par, u, S, cp, uz, r, ecint, SS, tab) schedule(dynamic, 2)
+		do k = 1, ff%par_n  ! Пробегаемся по пространству
 			!print*, k, ff%par_n
 			call Get_param_x(ff, k, x)  ! Получаем x координату функции
 			call Get_GD(x, g, par, now)
-			if(par(1) < 0.0001) then
+			if(par(1) < 0.00001) then
 				ff%Q1m(:, :, k) = 0.0_8
-				ff%Q1p(k) = 0.0_8
+				ff%Q1p(:, :, k) = 0.0_8
 				CYCLE
 			end if
 
@@ -894,27 +1004,33 @@ module Distfunc
 			do j = 1, ff%par_nv2
 				call Get_param_Vr(ff, j, Vr)
 				do i = 1, ff%par_nv1
-					S = S + Wr * Vr * ff%DistF(i, j, k)
+					S = S + Vr * ff%DistF(i, j, k)
 				end do
 			end do
 			S = S * 2.0 * par_pi * dWx * dWr
 			if(S < 0.00001) then
 				ff%Q1m(:, :, k) = 0.0_8
-				ff%Q1p(k) = 0.0_8
+				ff%Q1p(:, :, k) = 0.0_8
 				CYCLE
 			end if
 			S = 0.0
 
 			! Для Q1p
-			u = sqrt((Vx - par(2))**2 + Vr**2)
 			cp = sqrt(par(3)/par(1))
+			! do i = 1, ff%par_nv1
+			! 	call Get_param_Vx(ff, i, Vx)
+			! 	do j = 1, ff%par_nv2
+			! 		call Get_param_Vr(ff, j, Vr)
+			! 		u = sqrt((Vx - par(2))**2 + Vr**2)
 
-			if (u / cp > 7.0) then
-				uz = MK_Velosity_1(u, cp)
-				ff%Q1p(k) = (uz * sig(uz))
-			else
-				ff%Q1p(k) = (MK_int_1(u, cp))
-			end if
+			! 		if (.True.) then!(u / cp > 7.0) then
+			! 			uz = MK_Velosity_1(u, cp)
+			! 			ff%Q1p(i, j, k) = (uz * sig(uz))
+			! 		else
+			! 			ff%Q1p(i, j, k) = (MK_int_1(u, cp))
+			! 		end if
+			! 	end do
+			! end do
 			
 			! Для Q1m
 			do i = 1, ff%par_nv1
@@ -922,6 +1038,7 @@ module Distfunc
 				do j = 1, ff%par_nv2
 					call Get_param_Vr(ff, j, Vr)
 					S = 0.0
+					SS = 0.0
 
 					do ii = 1, ff%par_nv1
 						call Get_param_Vx(ff, ii, Wx)
@@ -929,25 +1046,50 @@ module Distfunc
 							call Get_param_Vr(ff, jj, Wr)
 							A = (Vx - Wx)**2 + Vr**2 + Wr**2
 							B = 2.0 * Vr * Wr
-							S = S + Wr * ff%DistF(ii, jj, k) * Tab1_Get(A, B)
+							!!r = sqrt(2 * B/(A + B))
+							! print*, A, B, 2 * sqrt(A + B) * (elliptic_inc_ea(par_pi/2, r) - elliptic_inc_ea(0.0_8, r))
+							! print*, A, B, 2 * sqrt(A + B) * (elliptic_inc_ek(par_pi/2, r) - elliptic_inc_ek(0.0_8, r))
+							! print*, A, B, 2 * sqrt(A + B) * (elliptic_inc_em(par_pi/2, r) - elliptic_inc_em(0.0_8, r))
+							! print*, A, B, 2 * sqrt(A + B) * (elliptic_inc_fa(par_pi/2, r) - elliptic_inc_fa(0.0_8, r))
+							! print*, A, B, 2 * sqrt(A + B) * (elliptic_inc_fk(par_pi/2, r) - elliptic_inc_fk(0.0_8, r))
+							! print*, A, B, 2 * sqrt(A + B) * (elliptic_inc_fm(par_pi/2, r) - elliptic_inc_fm(0.0_8, r))
+							! print*, "____"
+							! pause
+							!!ecint = 2 * sqrt(A + B) * (elliptic_inc_ek(par_pi/2, r) - elliptic_inc_ek(0.0_8, r))
+
+							tab = Tab1_Get(A, B)
+							S = S + Wr * ff%DistF(ii, jj, k) * tab
+							SS = SS + Wr * f_maxwell(Wx, Wr, par(2), cp) * tab
 						end do
 					end do
 
-					ff%Q1m(i, j, k) = S * 2.0_8 * dWx * dWr
+					ff%Q1m(i, j, k) = S * 2.0_8 * dWx * dWr! * 2.0 * par_pi
+					ff%Q1p(i, j, k) = SS * 2.0_8 * dWx * dWr!
 				end do
 			end do
 		end do
-		
+		!$omp end do
+
+		!$omp end parallel
+
 	end subroutine Calc_Q
 
-	subroutine Print_fx(f, x, name)
+	subroutine Print_fx(f, x, name, Time_)
 		TYPE (DistF), intent(in) :: f
 		real(8), intent(in) :: x
+		real(8), intent(in), OPTIONAL :: Time_
 		character(len=5), intent(in) :: name
 		integer :: i, j
-		real(8) :: S, Vx, Vr, ff
+		real(8) :: S, Vx, Vr, ff, cp, Time, fa
+
+		Time = 0.0
+
+		if(PRESENT(Time_)) Time = Time_
 
 		open(1, file = "Dist_f_" // name // ".txt")
+		write(1, *)  "TITLE = 'HP'  VARIABLES = Vx, f, fH, fp, f_analitic"
+
+		cp = sqrt(pl_p/pl_rho)
 
 		do i = 1, f%par_nv1
 			call Get_param_Vx(f, i, Vx)
@@ -958,7 +1100,10 @@ module Distfunc
 				S = S + ff * Vr
 			end do
 			S = S * 2.0 * par_pi * (f%par_Rv2 - f%par_Lv2)/f%par_nv2
-			WRITE (1, *) Vx, S, 1.0/(f%par_c * par_sqrtpi) * exp(-(Vx - f%par_Usr)**2/f%par_c**2)
+			fa = 0.0
+			if(x - Vx * Time < 0.0) fa = 1.0/(f%par_c * par_sqrtpi) * exp(-(Vx - f%par_Usr)**2/f%par_c**2)
+			WRITE (1, *) Vx, S, 1.0/(f%par_c * par_sqrtpi) * exp(-(Vx - f%par_Usr)**2/f%par_c**2), &
+				pl_rho/(cp * par_sqrtpi) * exp(-(Vx - pl_u)**2/cp**2), fa
 		end do
 
 		close(1)
@@ -975,7 +1120,7 @@ module Distfunc
 
 		open(1, file = "Dist_f_k" // name // ".txt")
 
-		write(1, *)  "TITLE = 'HP'  VARIABLES = u1, u2, u3, u4"
+		write(1, *)  "TITLE = 'HP'  VARIABLES = u1, u2, fH, u4, fp"
 
 		do i = 1, f%par_nv1
 			call Get_param_Vx(f, i, Vx)
@@ -991,7 +1136,8 @@ module Distfunc
 			call Get_param_x(f, k, x)
 			tf2 = 0.0
 			if(Vx * Time >= x) tf2 = tf
-			WRITE (1, *) Vx, S, tf, tf2
+			WRITE (1, *) Vx, S, tf, tf2, &
+				1.0/(sqrt(0.3) * par_sqrtpi) * exp(-(Vx)**2/0.3)
 		end do
 
 		close(1)
@@ -1002,12 +1148,14 @@ module Distfunc
 		TYPE (DistF), intent(in) :: f
 		character(len=5), intent(in) :: name
 		integer :: i, j, k
-		real(8) :: S, Vx, Vr, ff, x
+		real(8) :: S, Vx, Vr, ff, x, SS
 
 		open(1, file = "rho_" // name // ".txt")
+		write(1, *)  "TITLE = 'HP'  VARIABLES = x, nH, Vx"
 
 		do k = 1, f%par_n
 			S = 0.0
+			SS = 0.0
 			call Get_param_x(f, k, x)
 			do i = 1, f%par_nv1
 				call Get_param_Vx(f, i, Vx)
@@ -1015,10 +1163,12 @@ module Distfunc
 					call Get_param_Vr(f, j, Vr)
 					call Get_Func(f, i, j, x, ff)
 					S = S + ff * Vr
+					SS = SS + ff * Vr * Vx
 				end do
 			end do
 			S = S * 2.0 * par_pi * (f%par_Rv2 - f%par_Lv2)/f%par_nv2 * (f%par_Rv1 - f%par_Lv1)/f%par_nv1
-			WRITE (1, *) x, S
+			SS = SS * 2.0 * par_pi * (f%par_Rv2 - f%par_Lv2)/f%par_nv2 * (f%par_Rv1 - f%par_Lv1)/f%par_nv1
+			WRITE (1, *) x, S, SS/S
 		end do
 
 		close(1)
@@ -1054,6 +1204,23 @@ module Distfunc
 		close(1)
 
 	end subroutine Print_GD
+
+	subroutine Save_setka_bin(num)
+		! Variables
+		integer, intent(in) :: num
+		character(len=3) :: name
+		integer :: i
+		
+		write(unit=name,fmt='(i3.3)') num
+		
+		open(1, file = "save_" // name // ".bin", FORM = 'BINARY')
+		
+		write(1)  f1%par_n, f1%par_nv1, f1%par_nv2, f1%par_L, f1%par_R
+		write(1)  f1%DistF
+
+		close(1)
+
+	end subroutine Save_setka_bin
 
 	real(8) pure function MK_int_1_f1(x)
 
