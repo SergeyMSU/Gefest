@@ -1212,17 +1212,19 @@ module Distfunc
         real(8) :: wwx, wwr, wwx1, wwr1, wx, wr
         real(8) :: du, dv
 		integer :: N, i1, j1, i, j, ii, jj, k, potok
+		integer  :: iijj(120, 35, 120, 35) = 0
 		real(8) :: lx, ly, lz, ksiax, ksiay, ksiaz, gxy, wwy, wwz, wwy1, wwz1, gx, gy, gz
 
+		iijj = 0
 
 		du = (f1%par_Rv1 - f1%par_Lv1)/f1%par_nv1
 		dv = (f1%par_Rv2 - f1%par_Lv2)/f1%par_nv2
 		potok = 1
 
-		!$omp parallel
+		! !$omp parallel
 
-		!$omp do private(lx, ly, lz, ksiax, ksiay, ksiaz, gxy, wwy, wwz, wwy1, wwz1, gx, gy, gz, i1, j1, i, j, ii, jj, k, potok, ksi1, ksi2, ksi3, ksi4, ksi5, eps, phi, chi, g, the, wwx, wwr, wwx1, wwr1, wx, wr)
-        do N = 1, 100000
+		! !$omp do private(lx, ly, lz, ksiax, ksiay, ksiaz, gxy, wwy, wwz, wwy1, wwz1, gx, gy, gz, i1, j1, i, j, ii, jj, k, potok, ksi1, ksi2, ksi3, ksi4, ksi5, eps, phi, chi, g, the, wwx, wwr, wwx1, wwr1, wx, wr)
+        do N = 1, 10000
 			potok = (omp_get_thread_num() + 1)
             call M_K_rand(sensor(1, 1, potok), sensor(2, 1, potok), sensor(3, 1, potok), ksi1)
             call M_K_rand(sensor(1, 2, potok), sensor(2, 2, potok), sensor(3, 2, potok), ksi2)
@@ -1287,19 +1289,20 @@ module Distfunc
 					do k = 1, f1%par_n
 						if(nH_mas(k) < 0.00001) CYCLE
 
-						!$omp critical
-						Q1mHH(ii, jj, k) = Q1mHH(ii, jj, k) + f1%DistF(i, j, k) * f1%DistF(i1, j1, k)
-						!$omp end critical
+						! !$omp critical
+						!Q1mHH(ii, jj, k) = Q1mHH(ii, jj, k) + f1%DistF(i, j, k) * f1%DistF(i1, j1, k)
+						iijj(i, j, i1, j1) = iijj(i, j, i1, j1) + 1
+						! !$omp end critical
 
 					end do
 				end do
 			end do
         end do
-		!$omp end do
-		!$omp end parallel
+		! !$omp end do
+		! !$omp end parallel
 
 
-        Q1mHH(:, :, :) = Q1mHH(:, :, :) * (MK_norm_A/100000)
+        Q1mHH(:, :, :) = Q1mHH(:, :, :) * (MK_norm_A/10000)
 		
 	end subroutine Calc_Q1mHH_all_k
 
@@ -1445,41 +1448,34 @@ module Distfunc
 		!$omp end do
 		end if
 
+		!$omp end parallel
+
 		!! Учёт HH-столкновений ----------------------------------------------------------
 
 		if(.True.) then
-		!$omp do private(tab2, SS2, potok, nullf, i, j, ii, jj, x, Vx, Vr, Wx, Wr, A, B, u, S, cp, uz, r, ecint, SS, tab, nH, u_proton, rho, SQ2, SQ3) schedule(dynamic, 2)
-		do k = 1, ff%par_n  ! Пробегаемся по пространству
-		
-			potok = (omp_get_thread_num() + 1)
-
-			nH = nH_mas(k)
-			if(nH < 0.00001) then
-				Q1pHH(:, :, k) = 0.0_8
-				Q1mHH(:, :, k) = 0.0_8
-				CYCLE
-			end if
-
-			!print*, "k = ", k
-			
-			S = 0.0
-			
 			! Для Q1pHH
 			if(.True.) then
 			do i = 1, ff%par_nv1
 				call Get_param_Vx(ff, i, Vx)
 				do j = 1, ff%par_nv2
 					call Get_param_Vr(ff, j, Vr)
-					SS2 = 0.0
+					Q1pHH(i, j, :) = 0.0
 					do ii = 1, ff%par_nv1
 						call Get_param_Vx(ff, ii, Wx)
 						do jj = 1, ff%par_nv2
 							call Get_param_Vr(ff, jj, Wr)
 							tab2 = Omega2(i, j, ii, jj)
-							SS2 = SS2 + Wr * ff%DistF(ii, jj, k) * tab2
+
+
+							do k = 1, ff%par_n  ! Пробегаемся по пространству
+								if(nH_mas(k) < 0.00001) then
+									CYCLE
+								end if
+								Q1pHH(i, j, k) = Q1pHH(i, j, k) + Wr * ff%DistF(ii, jj, k) * tab2 * 2.0_8 * dWx * dWr
+							end do
 						end do
 					end do
-					Q1pHH(i, j, k) = SS2 * 2.0_8 * dWx * dWr!
+					!Q1pHH(i, j, k) = SS2 * 2.0_8 * dWx * dWr!
 				end do
 			end do
 			end if
@@ -1502,20 +1498,25 @@ module Distfunc
 			! end if
 
 			!! Предлагается здесь сразу умножить источники на то что надо (чтобы в основной программе не умножать и не вычислять параметры плазмы)
-			Q1pHH(:, :, k) = Q1pHH(:, :, k) * nH * KnHH
-			Q1mHH(:, :, k) = Q1mHH(:, :, k) * nH * KnHH
-		end do
-		!$omp end do
+			!Q1pHH(:, :, k) = Q1pHH(:, :, k) * nH * KnHH
+			!Q1mHH(:, :, k) = Q1mHH(:, :, k) * nH * KnHH
+		
+		
 		end if
 
-		!$omp end parallel
+		
+		call Calc_Q1mHH_all_k(nH_mas)
+		print*, "Integr = ", Q1mHH(60, 3, ff%par_n/2)
+		do k = 1, ff%par_n
+			Q1mHH(:, :, k) = Q1mHH(:, :, k) * nH_mas(k) * KnHH
+		end do
 
-		! Q1mHH(:, :, :) = 0.0
-		! call Calc_Q1mHH_all_k(nH_mas)
-		! print*, "Integr = ", Q1mHH(60, 3, ff%par_n/2)
-		! do k = 1, ff%par_n
-		! 	Q1mHH(:, :, k) = Q1mHH(:, :, k) * nH_mas(k) * KnHH
-		! end do
+		do k = 1, ff%par_n  ! Пробегаемся по пространству
+			Q1pHH(:, :, k) = Q1pHH(:, :, k) * nH_mas(k) * KnHH
+			Q1mHH(:, :, k) = Q1mHH(:, :, k) * nH_mas(k) * KnHH
+		end do
+
+
 
 		!!
 		! Q1pHH = 0.0
