@@ -75,13 +75,13 @@ program Gefest
 	! call Start(TT)
 
 
-	do i = 1, 1
+	do i = 1, 2
 		print*, "________________________ global step = ", i 
 		TT = 0.02_8
 		call Integrate_Protiv_potoka(f1, f2, f3, TT, now)
 		All_TT = All_TT + TT
 		print*, "Time = ", TT, All_TT
-		call Print_fx(f1, 0.1_8, "00001", All_TT, i)
+		call Print_fx(f1, 0.01_8, "00001", All_TT, i)
 		call Print_fx(f1, 0.5_8, "00002", All_TT, i)
 		call Print_fx(f1, 1.0_8, "00003", All_TT, i)
 		call Print_fx(f1, 1.5_8, "00004", All_TT, i)

@@ -1485,25 +1485,25 @@ module Distfunc
 			end if
 
 			! ƒл€ Q1mHH
-			if(.False.) then
-			do i = 1, ff%par_nv1
-				call Get_param_Vx(ff, i, Vx)
-				do j = 1, ff%par_nv2
-					call Get_param_Vr(ff, j, Vr)
-					Q1mHH(i, j, k) = Calc_Q1mHH(Vx, Vr, potok, k)
-				end do
-			end do
-			end if
+			! if(.False.) then
+			! do i = 1, ff%par_nv1
+			! 	call Get_param_Vx(ff, i, Vx)
+			! 	do j = 1, ff%par_nv2
+			! 		call Get_param_Vr(ff, j, Vr)
+			! 		Q1mHH(i, j, k) = Calc_Q1mHH(Vx, Vr, potok, k)
+			! 	end do
+			! end do
+			! end if
 
-			!!Q1mHH(:, :, k) = 0.0
-			!!call Calc_Q1mHH_all(potok, k)
-			!!if(k == ff%par_n/2) then
-			!!	print*, "Integr = ", Q1mHH(60, 3, k)
-			!!end if
+			! Q1mHH(:, :, k) = 0.0
+			! call Calc_Q1mHH_all(potok, k)
+			! if(k == ff%par_n/2) then
+			! 	print*, "Integr = ", Q1mHH(60, 3, k)
+			! end if
 
 			!! ѕредлагаетс€ здесь сразу умножить источники на то что надо (чтобы в основной программе не умножать и не вычисл€ть параметры плазмы)
 			Q1pHH(:, :, k) = Q1pHH(:, :, k) * nH * KnHH
-			!Q1mHH(:, :, k) = Q1mHH(:, :, k) * nH * KnHH
+			Q1mHH(:, :, k) = Q1mHH(:, :, k) * nH * KnHH
 		end do
 		!$omp end do
 		end if
@@ -1518,8 +1518,8 @@ module Distfunc
 		! end do
 
 		!!
-		Q1pHH = 0.0
-		Q1mHH = 0.0
+		! Q1pHH = 0.0
+		! Q1mHH = 0.0
 
 		end_time = omp_get_wtime()
 		print *, "Time work: ", (end_time-start_time), "   in secunds"

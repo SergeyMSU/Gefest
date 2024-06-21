@@ -5,13 +5,13 @@ module STORAGE
 	
 	real(8), parameter :: par_pi = acos(-1.0_8) 
     real(8), parameter :: par_sqrtpi = sqrt(par_pi)
-	real(8), parameter :: par_a_2 = 0.128493_8 
+	real(8), parameter :: par_a_2 = 0.0991561_8 
 	real(8), parameter :: par_N = 20_8 
 	real(8), parameter :: RRR = 5.0_8
 	real(8), parameter :: par_g_max = sqrt(2.0**2 + 4.0 * 2.0**2)    ! Ограничение относительной скорости
 	real(8), parameter :: KnHH = 0.0125676    ! Ограничение относительной скорости
-	real(8), parameter :: KnHp = 3.06575    ! Ограничение относительной скорости
-	real(8), parameter :: QKnHp = 3.06575    ! Ограничение относительной скорости
+	real(8), parameter :: KnHp = 5.14822    ! Ограничение относительной скорости
+	real(8), parameter :: QKnHp = 5.14822    ! Ограничение относительной скорости
 
 	integer, PARAMETER :: MK_n_potok = 24       ! Количество потоков для массива с датчиками случайных чисел
 
@@ -46,13 +46,13 @@ module STORAGE
 	
 		real(8) :: par_L = -5.0_8
 		real(8) :: par_R = RRR
-		real(8) :: par_Lv1 = -2.0_8! -3.2_8
-		real(8) :: par_Rv1 = 2.0_8
+		real(8) :: par_Lv1 = -3.0_8! -3.2_8
+		real(8) :: par_Rv1 = 3.0_8
 		real(8) :: par_Lv2 = 0.0_8
-		real(8) :: par_Rv2 = 2.0_8
+		real(8) :: par_Rv2 = 3.0_8
 		
 		real(8) :: par_Usr = 0.0_8! 2.54351_8
-		real(8) :: par_c = 0.141421_8
+		real(8) :: par_c = 1.41421_8
 		real(8) :: par_nH = 1.0
 	
 		real(8), allocatable :: DistF(:, :, :)   ! Частицы (par_nv1, par_nv2, par_n) = V1, V2, X
