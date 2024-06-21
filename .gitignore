@@ -16,3 +16,23 @@ Gefest/Debug/
 *.nb
 
 *.out
+
+Gefest/fort.1
+
+*.bin
+
+Gefest/resh_2/fort.1
+
+*.pptx
+
+Integr_test/Integr_test/.vs/Integr_test/v16/
+
+*.htm
+
+*.exe
+
+*.manifest
+
+Integr_test/Integr_test/Debug/
+
+swobodnoe/fort.1
