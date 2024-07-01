@@ -49,7 +49,7 @@ program Gefest
 	!call Test_int()
 
 	!print*, "time = ", gd1%time_step
-	gd1%time_step = 0.0000001_8
+	gd1%time_step = 0.000000001_8
 	TT = 0.0
 	do while(TT < 0.0) !0.0612
 		r1 = gd1%time_step
@@ -74,23 +74,24 @@ program Gefest
 	! call Print_rho(f1, "00001")
 	! call Start(TT)
 
+	!ead_setka_bin(100)
 
-	do i = 1, 2
+	do i = 1, 25
 		print*, "________________________ global step = ", i 
-		TT = 0.02_8
+		TT = 0.04_8!0.01_8
 		call Integrate_Protiv_potoka(f1, f2, f3, TT, now)
 		All_TT = All_TT + TT
 		print*, "Time = ", TT, All_TT
-		call Print_fx(f1, 0.01_8, "00001", All_TT, i)
-		call Print_fx(f1, 0.5_8, "00002", All_TT, i)
-		call Print_fx(f1, 1.0_8, "00003", All_TT, i)
-		call Print_fx(f1, 1.5_8, "00004", All_TT, i)
-		call Print_fx(f1, 2.0_8, "00005", All_TT, i)
-		call Print_fx(f1, 3.0_8, "00006", All_TT, i)
-		call Print_fx(f1, -0.1_8, "00007", All_TT, i)
-		call Print_fx(f1, -0.2_8, "00008", All_TT, i)
-		call Print_fx(f1, -0.3_8, "00009", All_TT, i)
-		call Print_fx(f1, 0.2_8, "00010", All_TT, i)
+		call Print_fx(f1, 0.05_8, "00001", All_TT, i)
+		call Print_fx(f1, 0.01_8, "00002", All_TT, i)
+		call Print_fx(f1, -0.01_8, "00003", All_TT, i)
+		call Print_fx(f1, 0.02_8, "00004", All_TT, i)
+		call Print_fx(f1, 0.03_8, "00005", All_TT, i)
+		call Print_fx(f1, 0.04_8, "00006", All_TT, i)
+		call Print_fx(f1, 0.06_8, "00007", All_TT, i)
+		call Print_fx(f1, 0.1_8, "00008", All_TT, i)
+		call Print_fx(f1, -0.1_8, "00009", All_TT, i)
+		call Print_fx(f1, -0.02_8, "00010", All_TT, i)
 		call Print_fx(f1, 0.3_8, "00011", All_TT, i)
 		call Print_fx(f1, 0.4_8, "00012", All_TT, i)
 		call Print_fx(f1, -0.4_8, "00013", All_TT, i)

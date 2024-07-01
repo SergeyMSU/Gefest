@@ -6,7 +6,7 @@ module MK
     implicit none
     integer, PARAMETER :: MK_n_phi = 768      !   оличество разбиений сечени€ по углу
     integer, PARAMETER :: MK_n_g = 1301       !   оличество разбиений сечени€ по относительной скорости
-    real(8), PARAMETER :: MK_norm_g = 1.10093       !!  Ќормировка скорости (километр в секунду в безразмерном виде)
+    real(8), PARAMETER :: MK_norm_g = 0.201001       !!  Ќормировка скорости (километр в секунду в безразмерном виде)
     real(8), PARAMETER :: MK_norm_sig = 1.0       !!  Ќормировка сечени€ (параметр самой физической задачи)
     integer, PARAMETER :: MK_n_FG = 2000       !!  “очность дл€ розыгрыша g (обратна€ к Fg)
     real(8) :: MK_norm_A = 0.0       !!  Ќормировка функции распределени€ дл€ вычислени€ интеграла
@@ -133,8 +133,10 @@ module MK
 
             open(1, file = 'sigma_g.txt')
 
+            write(1, *)  "TITLE = HP  VARIABLES = g, Sig_HH, Sig_HP"
+
             do i = 1, MK_n_g
-                write(1,*) MK_g(i), MK_sigHH_g(i)
+                write(1,*) MK_g(i), 2.0 * par_pi * MK_sigHH_g(i), sig(MK_g(i))
             end do
 
             close(1)
@@ -361,13 +363,15 @@ module MK
                                 u = sqrt(a - b * cos(phi))
                                 S = S + u * MK_Get_sigma_g(u) * dphi
                             end do
-                            Omega2(i, j, ii, jj) = S * 2.0 * par_pi
+                            Omega2(i, j, ii, jj) = S
                         end do
                     end do
                 end do
             end do
             !$omp end do
             !$omp end parallel
+
+            Omega2 = Omega2 * 2.0 * par_pi
 
             open(1, file = "save_Omega2.bin", FORM = 'BINARY')
             write(1) f1%par_nv1, f1%par_nv2

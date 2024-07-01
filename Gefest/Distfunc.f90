@@ -97,6 +97,8 @@ module Distfunc
 
 		!allocate(g%X(g%par_n))
 		allocate(g%par(3, g%par_n - 1, 2))
+		allocate(g%sr_par(3, g%par_n - 1))
+		allocate(g%dpar(3, g%par_n - 1, 2))
 
 		! Заполнения начальных условий
 		do i = 1, g%par_n - 1
@@ -113,6 +115,7 @@ module Distfunc
 
 	end subroutine Init_FuncGD
 
+
 	function get_coordinat_yzel(i, L, R, g)
 		TYPE (GD), intent(in out) :: g
 		integer(4), intent(in) :: i
@@ -123,12 +126,13 @@ module Distfunc
 
 	end function get_coordinat_yzel
 
+
 	subroutine Start_GD(T, g, now2)
 		TYPE (GD), intent(in out) :: g
 		real(8), intent(in) :: T
 		integer(4), intent(in) :: now2  !! Какой номер меняем
 		integer(4) :: i, j, now
-		real(8) :: dx, dx_do, newL, newR, w, QQ2, QQ3, x
+		real(8) :: dx, dx_do, newL, newR, w, QQ2, QQ3, x, x1, x2, x3, x4
 		real(8) :: par1(size(g%par(:, 1, 1)))
 		real(8) :: par2(size(g%par(:, 1, 1)))
 		real(8) :: POTOK(size(g%par(:, 1, 1)))
@@ -205,7 +209,34 @@ module Distfunc
 		dx = get_coordinat_yzel(2, newL, newR, g) - get_coordinat_yzel(1, newL, newR, g)
 		dx_do = get_coordinat_yzel(2, g%par_L, g%par_R, g) - get_coordinat_yzel(1, g%par_L, g%par_R, g)
 
+		g%dpar = 0.0
 
+		! !$omp parallel
+
+		if(.False.) then
+			! !$omp do private(x, x1, x2, x3, x4, j)
+			do i = 300, g%par_n - 2  ! пробегаемся по граням-границам ячеек
+
+				! Найдём координаты грани и ячеек
+				x = get_coordinat_yzel(i, g%par_L, g%par_R, g)
+				x1 = (get_coordinat_yzel(i, g%par_L, g%par_R, g) + get_coordinat_yzel(i - 1, g%par_L, g%par_R, g))/2.0
+				x2 = (get_coordinat_yzel(i - 1, g%par_L, g%par_R, g) + get_coordinat_yzel(i - 2, g%par_L, g%par_R, g))/2.0
+				x3 = (get_coordinat_yzel(i + 1, g%par_L, g%par_R, g) + get_coordinat_yzel(i, g%par_L, g%par_R, g))/2.0
+				x4 = (get_coordinat_yzel(i + 2, g%par_L, g%par_R, g) + get_coordinat_yzel(i + 1, g%par_L, g%par_R, g))/2.0
+
+				do j = 1, 3
+					g%dpar(j, i - 1, 1) = linear(x2, g%par(j, i - 2, now), x1, g%par(j, i - 1, now), x3, g%par(j, i, now), x) - g%par(j, i - 1, now)
+					g%dpar(j, i, 2) = linear(x1, g%par(j, i - 1, now), x3, g%par(j, i, now), x4, g%par(j, i + 1, now), x) - g%par(j, i, now)
+				end do
+
+
+
+			end do
+			! !$omp end do
+		end if
+
+		! !$omp do private(j, par1, par2, POTOK, qqq1, qqq2, w, POTOK2, normal, dsl, dsp, dsc, vvv, QQ2, QQ3, ro, p, u, ro2, p2, u2, &
+		! !$omp	contact, kdir, idgod, KOBL, x)
 		do i = 1, g%par_n - 1
 			
 			par1 = g%par(:, i, now)
@@ -217,6 +248,25 @@ module Distfunc
 			call Get_Q(x, QQ2, QQ3)
 
 			do j = 1, 2
+
+			    ! if(j == 1) par1 = g%par(:, i, now) + g%dpar(:, i, 1)
+			    ! if(j == 2) par1 = g%par(:, i, now) + g%dpar(:, i, 2)
+
+				! if(par1(1) <= 0.00000000001) par1(1) = g%par(1, i, now)
+				! if(par1(3) <= 0.00000000001) par1(3) = g%par(3, i, now)
+
+				! if(i == 50) then
+				! 	print*, i, j
+				! 	print*, par1
+				! 	print*, "-2 ", (get_coordinat_yzel(i - 1, g%par_L, g%par_R, g) + get_coordinat_yzel(i - 2, g%par_L, g%par_R, g))/2.0, g%par(1, i - 2, now)
+				! 	print*, "-1 ", (get_coordinat_yzel(i, g%par_L, g%par_R, g) + get_coordinat_yzel(i - 1, g%par_L, g%par_R, g))/2.0, g%par(1, i - 1, now)
+				! 	print*, "0 ", x, g%par(1, i, now)
+				! 	print*, "1 ", (get_coordinat_yzel(i + 2, g%par_L, g%par_R, g) + get_coordinat_yzel(i + 1, g%par_L, g%par_R, g))/2.0, g%par(1, i + 1, now)
+				! 	print*, "2 ", (get_coordinat_yzel(i + 3, g%par_L, g%par_R, g) + get_coordinat_yzel(i + 2, g%par_L, g%par_R, g))/2.0, g%par(1, i + 2, now)
+				! 	print*, "____"
+				! 	pause
+				! end if
+
 				contact = .False.
 				dsl = 0.0
 				dsp = 0.0
@@ -224,20 +274,22 @@ module Distfunc
 					if(i == g%par_n - 1) then
 						par2 = par1
 					else
-						par2 = g%par(:, i + 1, now)
+						par2 = g%par(:, i + 1, now)! + g%dpar(:, i + 1, 2)
+						!if(par2(1) <= 0.00000000001) par2(1) = g%par(1, i + 1, now)
+						!if(par2(3) <= 0.00000000001) par2(3) = g%par(3, i + 1, now)
 					end if
 					normal = 1.0_8
 					w = normal * (get_coordinat_yzel(i + 1, newL, newR, g) - get_coordinat_yzel(i + 1, g%par_L, g%par_R, g))/T
 				else
 					w = (get_coordinat_yzel(i, newL, newR, g) - get_coordinat_yzel(i, g%par_L, g%par_R, g))/T
 					if(i == 1) then !! Граница с вакуумом
-						if(lin_Mach == .False.) then
+						if(.False.) then! (lin_Mach == .False.) then
 							par2(1) = par1(1)
 							par2(3) = par1(3)
 							par2(2) = -par1(2) + 2.0 * w
 						else
 							par2(1) = par1(1)
-							par2(3) = par1(3)
+							par2(3) = par1(3) * 0.1
 							par2(2) = par1(2)
 						end if
 						! par2(1) = 0.000001
@@ -245,7 +297,9 @@ module Distfunc
 						! par2(2) = par1(2)
 						!print*, "w = ", w
 					else
-						par2 = g%par(:, i - 1, now)
+						par2 = g%par(:, i - 1, now)! + g%dpar(:, i - 1, 1)
+						!if(par2(1) <= 0.00000000001) par2(1) = g%par(1, i - 1, now)
+						!if(par2(3) <= 0.00000000001) par2(3) = g%par(3, i - 1, now)
 					end if
 					normal = -1.0_8
 					w = normal * (get_coordinat_yzel(i, newL, newR, g) - get_coordinat_yzel(i, g%par_L, g%par_R, g))/T
@@ -277,24 +331,24 @@ module Distfunc
 					POTOK2 = 0.0
 					!if(j == 2 .and. i == 1 .and. lin_Mach == .True.) w = 0.0_8
 
-					! call cgod3d(KOBL, 0, 0, 0, kdir, idgod, &
-					! 			normal, 0.0_8, 0.0_8, 1.0_8, &
-					! 			w, qqq1(1:8), qqq2(1:8), &
-					! 			dsl, dsp, dsc, 1.0_8, 1.66666666666666_8, &
-					! 			POTOK2, kontact_ = contact)
-					! if (idgod == 2) then
-                    !             POTOK2 = 0.0
-                    !             call chlld_Q(2, normal, 0.0_8, 0.0_8, &
-                    !                 w, qqq1, qqq2, dsl, dsp, dsc, POTOK2, .False.)
-					! end if
-					call chlld_Q(2, normal, 0.0_8, 0.0_8, &
+					call cgod3d(KOBL, 0, 0, 0, kdir, idgod, &
+								normal, 0.0_8, 0.0_8, 1.0_8, &
+								w, qqq1(1:8), qqq2(1:8), &
+								dsl, dsp, dsc, 1.0_8, 1.66666666666666_8, &
+								POTOK2, kontact_ = contact)
+					if (idgod == 2) then
+                                POTOK2 = 0.0
+                                call chlld_Q(2, normal, 0.0_8, 0.0_8, &
                                     w, qqq1, qqq2, dsl, dsp, dsc, POTOK2, .False.)
+					end if
+					! call chlld_Q(2, normal, 0.0_8, 0.0_8, &
+                    !                 w, qqq1, qqq2, dsl, dsp, dsc, POTOK2, .False.)
 
 					
 				end if
 
 				!$omp critical
-					g%time_step = min( g%time_step,  0.2 * dx/( max(dabs(dsl), dabs(dsp)) + dabs(w) ))
+					g%time_step = min( g%time_step,  0.5 * dx/( max(dabs(dsl), dabs(dsp)) + dabs(w) ))
 				!$omp end critical
 
 				!if (idgod == 2) print*, "ERROR 4i0u43h9h43t3r434r3"
@@ -329,12 +383,333 @@ module Distfunc
 			g%par(2, i, now2) = u2
 
 		end do
+		! !$omp end do
+		! !$omp end parallel
 
 		g%par_L = newL
 
 		if(g%par_L < f1%par_L) print*, "ERROR LLL fwv4b643n6436"
 
 	end subroutine Start_GD
+
+	subroutine Start_GD_GKR(T, g, now2)
+		! Расчёт по схеме Годунова-Колгана-Родионова (второго порядка по времени и пространству)
+		TYPE (GD), intent(in out) :: g
+		real(8), intent(in) :: T
+		integer(4), intent(in) :: now2  !! Какой номер меняем
+		integer(4) :: i, j, now
+		real(8) :: dx, dx_do, newL, newR, w, QQ2, QQ3, x, x1, x2, x3, x4
+		real(8) :: par1(size(g%par(:, 1, 1)))
+		real(8) :: par2(size(g%par(:, 1, 1)))
+		real(8) :: POTOK(size(g%par(:, 1, 1)))
+		real(8) :: normal, dsl, dsp, dsc, vvv
+		real(8) :: qqq1(9), qqq2(9), POTOK2(9), ro, p, u, ro2, p2, u2, pp, c0, Mach
+		logical :: contact, lin_Mach
+		integer(4) :: kdir, idgod, KOBL
+
+		c0 = sqrt(g%par_ggg * pl_p/pl_rho)
+		contact = .False.
+		KOBL = 0
+		kdir = 0
+		idgod = 0
+
+		now = mod(now2, 2) + 1
+		g%time_step = 100000.0
+
+		!! Считаем новое положение левой границы
+		vvv = (g%par(2, 1, now) - 2.0/(g%par_ggg - 1.0) * sqrt(g%par_ggg * g%par(3, 1, now)/g%par(1, 1, now)))
+		!vvv = (- 2.0/(g%par_ggg - 1.0) * sqrt(g%par_ggg * pl_p/pl_rho))
+
+		newL = g%par_L  + vvv * T/2.0
+
+
+		lin_Mach = .False.
+
+		if(newL <= f1%par_L) then
+			lin_Mach = .True.
+			newL = f1%par_L
+		end if
+
+		newR = g%par_R
+
+		dx = get_coordinat_yzel(2, newL, newR, g) - get_coordinat_yzel(1, newL, newR, g)
+		dx_do = get_coordinat_yzel(2, g%par_L, g%par_R, g) - get_coordinat_yzel(1, g%par_L, g%par_R, g)
+
+		g%dpar = 0.0_8
+
+		!! 1 - этап "Процедура реконструкции" -------------------------------------------------
+		!$omp parallel
+
+		!$omp do private(x, x1, x2, x3, x4, j)
+		do i = 3, g%par_n - 2  ! пробегаемся по граням-границам ячеек
+
+			! Найдём координаты грани и ячеек
+			x = get_coordinat_yzel(i, g%par_L, g%par_R, g)
+			x1 = (get_coordinat_yzel(i, g%par_L, g%par_R, g) + get_coordinat_yzel(i - 1, g%par_L, g%par_R, g))/2.0
+			x2 = (get_coordinat_yzel(i - 1, g%par_L, g%par_R, g) + get_coordinat_yzel(i - 2, g%par_L, g%par_R, g))/2.0
+			x3 = (get_coordinat_yzel(i + 1, g%par_L, g%par_R, g) + get_coordinat_yzel(i, g%par_L, g%par_R, g))/2.0
+			x4 = (get_coordinat_yzel(i + 2, g%par_L, g%par_R, g) + get_coordinat_yzel(i + 1, g%par_L, g%par_R, g))/2.0
+
+			do j = 1, 3
+				g%dpar(j, i - 1, 1) = linear(x2, g%par(j, i - 2, now), x1, g%par(j, i - 1, now), x3, g%par(j, i, now), x) - g%par(j, i - 1, now)
+				g%dpar(j, i, 2) = linear(x1, g%par(j, i - 1, now), x3, g%par(j, i, now), x4, g%par(j, i + 1, now), x) - g%par(j, i, now)
+			end do
+		end do
+		!$omp end do
+		
+		!! конец первого этапа  -------------------------------------------------
+
+
+		g%sr_par(:, 1) = g%par(:, 1, now)
+		g%sr_par(:, 2) = g%par(:, 2, now)
+		g%sr_par(:, g%par_n - 1) = g%par(:, g%par_n - 1, now)
+
+		!! 2 - этап "Предиктор"
+		!$omp do private(j, par1, par2, POTOK, qqq1, qqq2, w, POTOK2, normal, dsl, dsp, dsc, vvv, QQ2, QQ3, ro, p, u, ro2, p2, u2, pp, c0, Mach, &
+		!$omp	contact, lin_Mach, kdir, idgod, KOBL, x)
+		do i = 3, g%par_n - 2
+			! Задаём значения в ячейке справа и слева
+			par1 = g%par(:, i, now) + g%dpar(:, i, 1)
+			par2 = g%par(:, i, now) + g%dpar(:, i, 2)
+			POTOK = 0.0
+			x = (get_coordinat_yzel(i + 1, g%par_L, g%par_R, g) + get_coordinat_yzel(i, g%par_L, g%par_R, g))/2.0 
+			call Get_Q(x, QQ2, QQ3)
+
+			qqq1(1) = par1(1)
+			qqq1(5) = par1(3)
+			qqq1(2) = par1(2)
+			qqq1(3) = 0.0_8
+			qqq1(4) = 0.0_8
+			qqq1(6:8) = 0.0_8
+			qqq1(9) = 0.0_8
+
+			qqq2 = qqq1
+			w = 1.0_8 * (get_coordinat_yzel(i + 1, newL, newR, g) - get_coordinat_yzel(i + 1, g%par_L, g%par_R, g))/(T/2.0)
+
+			POTOK2 = 0.0
+			
+			call chlld_Q(1, 1.0_8, 0.0_8, 0.0_8, &
+                                    w, qqq1, qqq2, dsl, dsp, dsc, POTOK2, .False.)
+			POTOK(1) = POTOK(1) + POTOK2(1)
+			POTOK(2) = POTOK(2) + POTOK2(2)
+			POTOK(3) = POTOK(3) + POTOK2(5)
+
+			!! Левая грань
+			qqq1(1) = par2(1)
+			qqq1(5) = par2(3)
+			qqq1(2) = par2(2)
+			qqq1(3) = 0.0_8
+			qqq1(4) = 0.0_8
+			qqq1(6:8) = 0.0_8
+			qqq1(9) = 0.0_8
+
+			qqq2 = qqq1
+			w = -1.0_8 * (get_coordinat_yzel(i + 1, newL, newR, g) - get_coordinat_yzel(i + 1, g%par_L, g%par_R, g))/(T/2.0)
+
+			POTOK2 = 0.0
+			
+			call chlld_Q(1, -1.0_8, 0.0_8, 0.0_8, &
+                                    w, qqq1, qqq2, dsl, dsp, dsc, POTOK2, .False.)
+			POTOK(1) = POTOK(1) + POTOK2(1)
+			POTOK(2) = POTOK(2) + POTOK2(2)
+			POTOK(3) = POTOK(3) + POTOK2(5)
+
+			! Вычисляем потоки 
+			! POTOK = 0.0   !(rho, u, p)
+			! POTOK(1) = par1(1) * par1(2) + par2(1) * par2(2)
+			! POTOK(2) = (par1(1) * par1(2) * par1(2) + par1(3)) - (par2(1) * par2(2) * par2(2) + par2(3))
+			! POTOK(3) = par1(1) * (g%par_ggg * par1(3)/(g%par_ggg - 1.0) + 0.5 * par1(1) * par1(2)**2) + par2(1) * (g%par_ggg * par2(3)/(g%par_ggg - 1.0) + 0.5 * par2(1) * par2(2)**2)
+
+			ro = g%par(1, i, now)
+			p = g%par(3, i, now)
+			u = g%par(2, i, now)
+
+			QQ2 = QQ2 * ro
+			QQ3 = QQ3 * ro
+
+			ro2 = ro * dx_do/dx - T/2.0 * (POTOK(1) / dx)
+			if(ro2 < 0.0) then
+				print*, "Predictor ro2 < 0", ro2, ro, i, lin_Mach
+				ro2 = 0.000001
+			end if
+			u2 = (ro * u * dx_do/dx - T/2.0 * ( POTOK(2) / dx - QQ2)) / ro2
+			p2 = ((  ( p / (g%par_ggg - 1.0) + 0.5 * ro * u**2)  * dx_do/dx   &
+                        - T/2.0 * (POTOK(3)/ dx - QQ3) ) - 0.5 * ro2 * u2**2 ) * (g%par_ggg - 1.0)
+			if(p2 < 0.0) then
+				!print*, "Predictor p2 < 0", p2, p, i, lin_Mach
+				!p2 = 0.000001
+				p2 = min(0.000001, p)
+			end if
+
+			g%sr_par(1, i) = ro2
+			g%sr_par(2, i) = u2
+			g%sr_par(3, i) = p2
+
+		end do
+		!$omp end do
+		!! конец второго этапа ---------------------
+
+
+		newL = g%par_L  + vvv * T
+
+		lin_Mach = .False.
+
+		if(newL <= f1%par_L) then
+			lin_Mach = .True.
+			newL = f1%par_L
+		end if
+
+		dx = get_coordinat_yzel(2, newL, newR, g) - get_coordinat_yzel(1, newL, newR, g)
+		dx_do = get_coordinat_yzel(2, g%par_L, g%par_R, g) - get_coordinat_yzel(1, g%par_L, g%par_R, g)
+
+
+		!! 3 - этап "Корректор"
+		!$omp do private(j, par1, par2, POTOK, qqq1, qqq2, w, POTOK2, normal, dsl, dsp, dsc, vvv, QQ2, QQ3, ro, p, u, ro2, p2, u2, pp, c0, Mach, &
+		!$omp	contact, lin_Mach, kdir, idgod, KOBL, x)
+		do i = 1, g%par_n - 1
+			POTOK = 0.0
+			x = (get_coordinat_yzel(i + 1, g%par_L, g%par_R, g) + get_coordinat_yzel(i, g%par_L, g%par_R, g))/2.0 
+			call Get_Q(x, QQ2, QQ3)
+
+			do j = 1, 2
+				if(j == 1) then ! Правая грань
+					if(g%par(1, i, now) < 0.00001) then
+						par1 = g%par(:, i, now)
+					else
+						par1 = 0.5 * (g%par(:, i, now) + g%sr_par(:, i)) + g%dpar(:, i, 1)
+					end if
+
+					if(i == g%par_n - 1) then
+						par2 = par1
+					else
+						if(g%par(1, i + 1, now) < 0.00001) then
+							par2 = g%par(:, i + 1, now)
+						else
+							par2 = 0.5 * (g%par(:, i + 1, now) + g%sr_par(:, i + 1)) + g%dpar(:, i + 1, 2)
+						end if
+					end if
+					normal = 1.0_8
+					w = normal * (get_coordinat_yzel(i + 1, newL, newR, g) - get_coordinat_yzel(i + 1, g%par_L, g%par_R, g))/T
+				else    ! Левая грань
+					w = (get_coordinat_yzel(i, newL, newR, g) - get_coordinat_yzel(i, g%par_L, g%par_R, g))/T
+					
+					if(g%par(1, i, now) < 0.00001) then
+						par1 = g%par(:, i, now)
+					else
+						par1 = 0.5 * (g%par(:, i, now) + g%sr_par(:, i)) + g%dpar(:, i, 2)
+					end if
+					
+					if(i == 1) then
+						if(lin_Mach == .False.) then
+							par2(1) = par1(1)
+							par2(3) = par1(3)
+							par2(2) = -par1(2) + 2.0 * w
+						else
+							par2 = par1
+						end if
+					else
+						if(g%par(1, i - 1, now) < 0.00001) then
+							par2 = g%par(:, i - 1, now)
+						else
+							par2 = 0.5 * (g%par(:, i - 1, now) + g%sr_par(:, i - 1)) + g%dpar(:, i - 1, 1)
+						end if
+					end if
+					normal = -1.0_8
+					w = normal * (get_coordinat_yzel(i, newL, newR, g) - get_coordinat_yzel(i, g%par_L, g%par_R, g))/T
+				end if
+
+				qqq1(1) = par1(1)
+				qqq1(5) = par1(3)
+				qqq1(2) = par1(2)
+				qqq1(3) = 0.0_8
+				qqq1(4) = 0.0_8
+				qqq1(6:8) = 0.0_8
+				qqq1(9) = 0.0_8
+
+				qqq2(1) = par2(1)
+				qqq2(5) = par2(3)
+				qqq2(2) = par2(2)
+				qqq2(3) = 0.0_8
+				qqq2(4) = 0.0_8
+				qqq2(6:8) = 0.0_8
+				qqq2(9) = 0.0_8
+				
+				!if(j == 2 .and. i == 1 .and. lin_Mach == .False.) contact = .True.
+
+				!if(.False.) then!
+				if(j == 2 .and. i == 1 .and. lin_Mach == .False.) then
+					POTOK2 = 0.0
+				else
+					POTOK2 = 0.0
+					!if(j == 2 .and. i == 1 .and. lin_Mach == .True.) w = 0.0_8
+
+					if(.False.) then
+					!if(qqq1(1) > 0.00001) then
+						call cgod3d(KOBL, 0, 0, 0, kdir, idgod, &
+									normal, 0.0_8, 0.0_8, 1.0_8, &
+									w, qqq1(1:8), qqq2(1:8), &
+									dsl, dsp, dsc, 1.0_8, 1.66666666666666_8, &
+									POTOK2, kontact_ = contact)
+						if (idgod == 2) then
+									POTOK2 = 0.0
+									call chlld_Q(2, normal, 0.0_8, 0.0_8, &
+										w, qqq1, qqq2, dsl, dsp, dsc, POTOK2, .False.)
+						end if
+					else
+						call chlld_Q(2, normal, 0.0_8, 0.0_8, &
+										w, qqq1, qqq2, dsl, dsp, dsc, POTOK2, .False.)
+					end if
+				end if
+
+				!$omp critical
+					g%time_step = min( g%time_step,  0.5 * dx**2/( max(dabs(dsl), dabs(dsp)) + dabs(w) )) !0.2
+				!$omp end critical
+
+				!if (idgod == 2) print*, "ERROR 4i0u43h9h43t3r434r3"
+
+				POTOK(1) = POTOK(1) + POTOK2(1)
+				POTOK(2) = POTOK(2) + POTOK2(2)
+				POTOK(3) = POTOK(3) + POTOK2(5)
+
+			end do
+
+			par1 = g%par(:, i, now)
+
+			ro = par1(1)
+			p = par1(3)
+			u = par1(2)
+
+			QQ2 = QQ2 * ro
+			QQ3 = QQ3 * ro
+
+			ro2 = ro * dx_do/dx - T * (POTOK(1) / dx)
+			if(ro2 < 0.0) then
+				print*, "Corrector 3 = ro2 < 0", ro2, ro, i, lin_Mach, QQ2, QQ3
+				ro2 = 0.000001
+			end if
+			u2 = (ro * u * dx_do/dx - T * ( POTOK(2) / dx - QQ2)) / ro2
+			p2 = ((  ( p / (g%par_ggg - 1.0) + 0.5 * ro * u**2)  * dx_do/dx   &
+                        - T * (POTOK(3)/ dx - QQ3) ) - 0.5 * ro2 * u2**2 ) * (g%par_ggg - 1.0)
+			if(p2 < 0.0) then
+				!print*, "Corrector 3 = p2 < 0", p2, p, i
+				p2 = min(0.000001, p)
+			end if
+			
+			g%par(1, i, now2) = ro2
+			g%par(3, i, now2) = p2
+			g%par(2, i, now2) = u2
+		
+		end do
+		!$omp end do
+		!! конец третьего этапа
+
+		!$omp end parallel
+
+		g%par_L = newL
+
+		if(g%par_L < f1%par_L) print*, "ERROR LLL fwv4b643n6436"
+
+	end subroutine Start_GD_GKR
 
 	subroutine Get_GD(x, g, par, now)
 		TYPE (GD), intent(in) :: g
@@ -598,9 +973,16 @@ module Distfunc
 			dt = gd1%time_step
 			if(all_t + dt > T) dt = T - all_t
 			call Start_GD(dt, gd1, now)
+			!call Start_GD_GKR(dt, gd1, now)
 			all_t = all_t + dt
 			now = mod(now, 2) + 1
+			if(dt < 0.00000000001) then
+				print*, "Error  dt  =   ", dt
+				STOP
+			end if
 		end do
+
+		print*, "dt = ", dt
 
 		!print*, "dt = ", dt, T, gd1%par_L
 	end subroutine play_GD
@@ -636,7 +1018,7 @@ module Distfunc
 		dt_global = dx/dabs(Vx_max)                                    ! Шаг по времени (для функции распределения)
 		call Get_param_Vx(ff1, 1, Vx_max)
 		dt_global = min(dt_global, dx/dabs(Vx_max)) !!!!!
-		dt_ex = dt_global/2.0
+		!dt_ex = dt_global * 3.0  
 		!print*, "dt_ex = ", dt_ex
 
 		call Get_param_Vx(ff1, ff1%par_nv1/2 + 1, Vx_min)
@@ -664,9 +1046,9 @@ module Distfunc
 		nnn = 300
 		if(metod_ytochn) nnn = size(time_step)
 
-		nnn = (INT(TT/dt_global) + 2) * 2
+		nnn = (INT(TT/dt_global) + 2) * 2 !!2
 		dt_global = TT/nnn
-		dt_ex = dt_global/2.0
+		dt_ex = dt_global * 2!!* 3.0 !! Время до перезарядки
 
 		do step = 1, nnn
 			if(mod(step, 1) == 0) print*, "step = ", step, "From = ", nnn
@@ -688,10 +1070,12 @@ module Distfunc
 
 			if(dt_ex < dt_ex2) then
 				dt_ex2 = 0.0
-				print*, "Start Calc_Q"
-				call Calc_Q(ff1, gd1, now) !! -----------------------------------------------
-				print*, "End Calc_Q"
+				!print*, "Start Calc_Q"
+				call Calc_Q(ff1, gd1, now, step) !! -----------------------------------------------
+				!print*, "End Calc_Q"
 			end if
+
+			!CYCLE
 
 			! Делаем сначала стандартный шаг по времени dt
 			do i = 1, ff1%par_nv1
@@ -750,7 +1134,7 @@ module Distfunc
 								if(ff2%DistF(i, j, k) < 0.0) ff2%DistF(i, j, k) = 0.0
 							end if
 						else
-							dQ = dt * (-nu_ex * ff1%DistF(i, j, k) + N_ex)/par_N
+							dQ = dt * (-nu_ex * ff1%DistF(i, j, k) + N_ex)
 							! if(Vx > 0.0) then
 							! 	ff2%DistF(i, j, k) = ff1%DistF(i, j, k) - nu * (ff1%DistF(i, j, k) - ff1%DistF(i, j, k-1)) + &
 							! 		0.5_8 * nu * (nu - 1.0_8) * (ff1%DistF(i, j, k) - 2.0_8 * ff1%DistF(i, j, k - 1) + ff1%DistF(i, j, k-2)) &
@@ -1208,23 +1592,65 @@ module Distfunc
 	subroutine Calc_Q1mHH_all_k(nH_mas)
 		!integer, intent(in) :: potok  ! k - в какой точке по x берём значения функции распределения
 		real(8), intent(in) :: nH_mas(f1%par_n)
-		real(8) :: ksi1, ksi2, ksi3, ksi4, ksi5, eps, phi, chi, g, the
-        real(8) :: wwx, wwr, wwx1, wwr1, wx, wr
-        real(8) :: du, dv
-		integer :: N, i1, j1, i, j, ii, jj, k, potok
-		integer  :: iijj(120, 35, 120, 35) = 0
+		real(8) :: ksi1, ksi2, ksi3, ksi4, ksi5, eps, phi, chi, g, the, vH_mas(par_n)
+        real(8) :: wwx, wwr, wwx1, wwr1, wx, wr, wx1, wy1, wz1, wr1
+        real(8) :: du, dv, al, al1, bl, bl1, aa, bb
+		integer :: N, i1, j1, i, j, ii, jj, k, potok, ii1, jj1, kkk, mi, pi, mi1, pi1, mj, pj, mj1, pj1
+		integer :: N_MK = 100000
+		real(8)  :: iijj(par_n, par_nv1, par_nv2) = 0.0
+		real(8)  :: iijj3(par_n, par_nv1, par_nv2) = 0.0
+		real(8)  :: iijj2(par_n, par_nv1, par_nv2) = 0.0
+		integer (kind=omp_lock_kind):: mutex(par_nv1, par_nv2)
+		integer (kind=omp_lock_kind):: mutex2(par_nv1, par_nv2)
 		real(8) :: lx, ly, lz, ksiax, ksiay, ksiaz, gxy, wwy, wwz, wwy1, wwz1, gx, gy, gz
+		real(8) :: S, Vr, tab, Vx, SS, ff, fa, cp
+		logical :: mas_TF(par_n)
 
-		iijj = 0
+		iijj = 0.0
+		iijj3 = 0.0
+		mutex = 0
+		mutex2 = 0
 
 		du = (f1%par_Rv1 - f1%par_Lv1)/f1%par_nv1
 		dv = (f1%par_Rv2 - f1%par_Lv2)/f1%par_nv2
+
+		do i = 1, par_nv1
+			do j = 1, par_nv2
+				call omp_init_lock(mutex(i, j))
+				call omp_init_lock(mutex2(i, j))
+			end do
+		end do
+
+		mas_TF = .True.
 		potok = 1
+		iijj2 = 0.0
 
-		! !$omp parallel
 
-		! !$omp do private(lx, ly, lz, ksiax, ksiay, ksiaz, gxy, wwy, wwz, wwy1, wwz1, gx, gy, gz, i1, j1, i, j, ii, jj, k, potok, ksi1, ksi2, ksi3, ksi4, ksi5, eps, phi, chi, g, the, wwx, wwr, wwx1, wwr1, wx, wr)
-        do N = 1, 10000
+		!$omp parallel
+		!$omp do private(wx, wr, i, j)
+		do k = 1, par_n
+			if(nH_mas(k) < 0.0001) then
+				mas_TF(k) = .False.
+				CYCLE
+			end if
+
+			do i = 1, par_nv1
+				do j = 1, par_nv2
+					call Get_param_Vx(f1, i, wx)
+					call Get_param_Vr(f1, j, wr)
+					
+					iijj2(k, i, j) = f1%DistF(i, j, k)
+				end do
+			end do
+
+
+		end do
+		!$omp end do
+
+		!$omp do private(aa, bb, bl, bl1, mj, pj, mj1, pj1, al1, al, mi, pi, mi1, pi1, kkk, ii1, jj1, wr1, wx1, wy1, wz1, &
+		!$omp lx, ly, lz, ksiax, ksiay, ksiaz, gxy, wwy, wwz, wwy1, wwz1, gx, gy, gz, i1, j1, i, j, ii, jj, k, &
+		!$omp  potok, ksi1, ksi2, ksi3, ksi4, ksi5, eps, phi, chi, g, the, wwx, wwr, wwx1, wwr1, wx, wr)
+        do N = 1, N_MK
 			potok = (omp_get_thread_num() + 1)
             call M_K_rand(sensor(1, 1, potok), sensor(2, 1, potok), sensor(3, 1, potok), ksi1)
             call M_K_rand(sensor(1, 2, potok), sensor(2, 2, potok), sensor(3, 2, potok), ksi2)
@@ -1267,49 +1693,527 @@ module Distfunc
 					wwr = sqrt(wwy**2 + wwz**2)
 					wwr1 = sqrt(wwy1**2 + wwz1**2)
 
-					if(wwx < f1%par_Lv1 .or. wwx1 < f1%par_Lv1 .or. wwx > f1%par_Rv1 .or. wwx1 > f1%par_Rv1) CYCLE
-					if(wwr > f1%par_Rv2 .or. wwr1 > f1%par_Rv2) CYCLE
+					wx1 = wx - gx
+					wy1 = wr - gy
+					wz1 = - gz
 
-					i = INT((wwx - f1%par_Lv1)/du)
+					wr1 = sqrt(wy1**2 + wz1**2)
+
+					if(wwx < f1%par_Lv1 .or. wwx1 < f1%par_Lv1 .or. wwx > f1%par_Rv1 .or. wwx1 > f1%par_Rv1) GOTO 11
+					if(wwr > f1%par_Rv2 .or. wwr1 > f1%par_Rv2) GOTO 11
+
+					i = INT((wwx - f1%par_Lv1)/du) + 1
 					if(i < 1) i = 1
-					if(i > f1%par_nv1) i = f1%par_nv1
+					mi = i
+					pi = i + 1
+					al = (wwx - f1%par_Lv1 - (mi - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1))/((pi - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1) - (mi - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1))
+					if(i > f1%par_nv1) then
+						i = f1%par_nv1
+						mi = i
+						pi = i
+						al = 0.0
+					end if
+					if(al > 0.5) i = pi
 
-					i1 = INT((wwx1 - f1%par_Lv1)/du)
+					i1 = INT((wwx1 - f1%par_Lv1)/du) + 1
 					if(i1 < 1) i1 = 1
-					if(i1 > f1%par_nv1) i1 = f1%par_nv1
+					mi1 = i1
+					pi1 = i1 + 1
+					al1 = (wwx1 - f1%par_Lv1 - (mi1 - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1))/((pi1 - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1) - (mi1 - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1))
+					if(i1 > f1%par_nv1) then
+						i1 = f1%par_nv1
+						mi1 = i1
+						pi1 = i1
+						al1 = 0.0
+					end if
+					if(al1 > 0.5) i1 = pi1
+
+
 
 					j = INT((wwr)/dv)
 					if(j < 1) j = 1
-					if(j > f1%par_nv2) j = f1%par_nv2
+					mj = j
+					pj = j + 1
+					bl = (wwr - f1%par_Lv2 - (mj - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2))/((pj - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2) - (mj - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2))
+					if(j > f1%par_nv2) then
+						j = f1%par_nv2
+						mj = j
+						pj = j
+						bl = 0.0
+					end if
+					if(bl > 0.5) j = pj
 
 					j1 = INT((wwr1)/dv)
 					if(j1 < 1) j1 = 1
-					if(j1 > f1%par_nv2) j1 = f1%par_nv2
+					mj1 = j1
+					pj1 = j1 + 1
+					bl1 = (wwr1 - f1%par_Lv2 - (mj1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2))/((pj1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2) - (mj1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2))
+					if(j1 > f1%par_nv2) then
+						j1 = f1%par_nv2
+						mj1 = j1
+						pj1 = j1
+						bl1 = 0.0
+					end if
+					if(bl1 > 0.5) j1 = pj1
 
+
+					call omp_set_lock(mutex(ii, jj))
 					do k = 1, f1%par_n
-						if(nH_mas(k) < 0.00001) CYCLE
+						if(mas_TF(k) == .False.) CYCLE
 
-						! !$omp critical
+
+						! aa = (1.0 - al) * (1.0 - bl) * iijj2(k, mi, mj) + al * (1.0 - bl) * iijj2(k, pi, mj) + &
+						! 	(1.0 - al) * bl * iijj2(k, mi, pj) + al * bl * iijj2(k, pi, pj)
+
+						! bb = (1.0 - al1) * (1.0 - bl1) * iijj2(k, mi1, mj1) + al1 * (1.0 - bl1) * iijj2(k, pi1, mj1) + &
+						! 	(1.0 - al1) * bl1 * iijj2(k, mi1, pj1) + al1 * bl1 * iijj2(k, pi1, pj1)
+
 						!Q1mHH(ii, jj, k) = Q1mHH(ii, jj, k) + f1%DistF(i, j, k) * f1%DistF(i1, j1, k)
-						iijj(i, j, i1, j1) = iijj(i, j, i1, j1) + 1
-						! !$omp end critical
 
+						!aa = iijj2(k, i, j)
+						!bb = iijj2(k, i1, j1)
+						iijj(k, ii, jj) = iijj(k, ii, jj) + iijj2(k, i, j) * iijj2(k, i1, j1)
+						!iijj(k, ii, jj) = iijj(k, ii, jj) + nH_mas(k) * f_maxwell(wwx, wwr, vH_mas(k), sqrt(2.0 * TH_mas(k))) * bb + &
+						!			nH_mas(k) * f_maxwell(wwx1, wwr1, vH_mas(k), sqrt(2.0 * TH_mas(k))) * aa + &
+						!			aa * bb
+
+
+						!!iijj(k, ii, jj) = iijj(k, ii, jj) + aa * bb
+						!iijj(k, ii, jj) = iijj(k, ii, jj) + f_maxwell(wwx, wwr, 0.0_8, 0.816497_8) * f_maxwell(wwx1, wwr1, 0.0_8, 0.816497_8)
 					end do
+					call omp_unset_lock(mutex(ii, jj))
+
+					11 continue 
+
+					if(wx1 < f1%par_Lv1 .or. wx1 > f1%par_Rv1 .or. wr1 > f1%par_Rv2) CYCLE
+
+					ii1 = INT((wx1 - f1%par_Lv1)/du) + 1
+					if(ii1 < 1) ii1 = 1
+					mi1 = ii1
+					pi1 = ii1 + 1
+					al1 = (wx1 - f1%par_Lv1 - (mi1 - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1))/((pi1 - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1) - (mi1 - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1))
+					if(ii1 > f1%par_nv1) then
+						ii1 = f1%par_nv1
+						mi1 = ii1
+						pi1 = ii1
+						al1 = 0.0
+					end if
+					if(al1 > 0.5) ii1 = pi1
+
+					jj1 = INT((wr1)/dv)
+					if(jj1 < 1) jj1 = 1
+					mj1 = jj1
+					pj1 = jj1 + 1
+					bl1 = (wr1 - f1%par_Lv2 - (mj1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2))/((pj1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2) - (mj1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2))
+					if(jj1 > f1%par_nv2) then
+						jj1 = f1%par_nv2
+						mj1 = jj1
+						pj1 = jj1
+						bl1 = 0.0
+					end if
+					if(bl1 > 0.5) jj1 = pj1
+
+
+					call omp_set_lock(mutex2(ii, jj))
+					do k = 1, f1%par_n
+						if(mas_TF(k) == .False.) CYCLE
+
+						! bb = (1.0 - al1) * (1.0 - bl1) * iijj2(k, mi1, mj1) + al1 * (1.0 - bl1) * iijj2(k, pi1, mj1) + &
+						! 	(1.0 - al1) * bl1 * iijj2(k, mi1, pj1) + al1 * bl1 * iijj2(k, pi1, pj1)
+
+						!Q1mHH(ii, jj, k) = Q1mHH(ii, jj, k) + f1%DistF(i, j, k) * f1%DistF(i1, j1, k)
+						iijj3(k, ii, jj) = iijj3(k, ii, jj) + iijj2(k, ii1, jj1)! * iijj2(k, ii, jj)
+
+						!!iijj3(k, ii, jj) = iijj3(k, ii, jj) + bb! * iijj2(k, ii, jj)
+						!iijj3(k, ii, jj) = iijj3(k, ii, jj) + f_maxwell(wx1, wr1, 0.0_8, 0.5_8)
+						!!iijj3(k, ii, jj) = iijj3(k, ii, jj) + f_maxwell(wx, wr, 0.0_8, 0.816497_8) * f_maxwell(wx1, wr1, 0.0_8, 0.816497_8)
+					end do
+					call omp_unset_lock(mutex2(ii, jj))
+
+
+
 				end do
 			end do
         end do
-		! !$omp end do
-		! !$omp end parallel
+		!$omp end do
+		!$omp end parallel
 
 
-        Q1mHH(:, :, :) = Q1mHH(:, :, :) * (MK_norm_A/10000)
+		do k = 1, par_n
+			do i = 1, par_nv1
+				do j = 1, par_nv2
+					Q1mHH(i, j, k) = iijj(k, i, j)
+					Q1pHH(i, j, k) = iijj3(k, i, j)
+				end do
+			end do
+		end do
+
+
+        Q1mHH(:, :, :) = Q1mHH(:, :, :) * (MK_norm_A/N_MK)
+        Q1pHH(:, :, :) = Q1pHH(:, :, :) * (MK_norm_A/N_MK)
 		
 	end subroutine Calc_Q1mHH_all_k
 
-	subroutine Calc_Q(ff, g, now)
+	subroutine Calc_Q1mHH_all_k_Makswel(nH_mas, step)
+		integer, intent(in) :: step  ! k - в какой точке по x берём значения функции распределения
+		real(8), intent(in) :: nH_mas(f1%par_n)
+		real(8) :: ksi1, ksi2, ksi3, ksi4, ksi5, eps, phi, chi, g, the, dnH_mas(par_n)
+		real(8) :: vH_mas(par_n) = 0.0
+		real(8) :: TH_mas(par_n) = 0.0
+        real(8) :: wwx, wwr, wwx1, wwr1, wx, wr, wx1, wy1, wz1, wr1
+        real(8) :: du, dv, al, al1, bl, bl1, aa, bb
+		integer :: N, i1, j1, i, j, ii, jj, k, potok, ii1, jj1, kkk, mi, pi, mi1, pi1, mj, pj, mj1, pj1
+		integer :: N_MK = 100000
+		real(8)  :: iijj(par_n, par_nv1, par_nv2) = 0.0
+		real(8)  :: iijj3(par_n, par_nv1, par_nv2) = 0.0
+		real(8)  :: iijj2(par_n, par_nv1, par_nv2) = 0.0
+		integer (kind=omp_lock_kind):: mutex(par_nv1, par_nv2)
+		integer (kind=omp_lock_kind):: mutex2(par_nv1, par_nv2)
+		real(8) :: lx, ly, lz, ksiax, ksiay, ksiaz, gxy, wwy, wwz, wwy1, wwz1, gx, gy, gz
+		real(8) :: S, Vr, tab, Vx, SS, ff, fa, cp, vH, TH, nH
+		logical :: mas_TF(par_n)
+
+		iijj = 0.0
+		iijj3 = 0.0
+		mutex = 0
+		mutex2 = 0
+
+		du = (f1%par_Rv1 - f1%par_Lv1)/f1%par_nv1
+		dv = (f1%par_Rv2 - f1%par_Lv2)/f1%par_nv2
+
+		do i = 1, par_nv1
+			do j = 1, par_nv2
+				call omp_init_lock(mutex(i, j))
+				call omp_init_lock(mutex2(i, j))
+			end do
+		end do
+
+		dnH_mas = 0.0
+		mas_TF = .True.
+		potok = 1
+		iijj2 = 0.0
+
+		do k = 1, par_n
+			do i = 1, par_nv1
+				do j = 1, par_nv2
+					iijj2(k, i, j) = f1%DistF(i, j, k)
+				end do
+			end do
+		end do
+
+		if(mod(step, 7) == 1) then
+			vH_mas = 0.0
+			TH_mas = 0.0
+			do k = 1, f1%par_n	 !! Считаем скорость и температуру функции распределения в каждой точке
+				if(nH_mas(k) < 0.0001) then
+					TH_mas(k) = 1.0
+					CYCLE
+				end if
+				S = 0.0
+				SS = 0.0
+				do j = 1, f1%par_nv2
+					call Get_param_Vr(f1, j, Vr)
+					do i = 1, f1%par_nv1
+						call Get_param_Vx(f1, i, Vx)
+						!tab = f1%DistF(i, j, k)
+						tab = iijj2(k, i, j)
+						S = S + Vx * Vr * tab
+						SS = SS + (Vx**2 + Vr**2) * Vr * tab
+					end do
+				end do
+				S = S * 2.0 * par_pi * du * dv
+				SS = SS * 2.0 * par_pi * du * dv
+				vH_mas(k) = S/nH_mas(k)
+				TH_mas(k) = SS/nH_mas(k)/3 - vH_mas(k)**2 / 3.0
+			end do
+		end if
+
+		! open(1, file = "_tESST_f.txt")
+		! write(1, *)  "TITLE = 'HP'  VARIABLES = Vx, f, f_analitic"
+		! do i = 1, f1%par_nv1
+		! 	call Get_param_Vx(f1, i, Vx)
+		! 	S = 0.0
+		! 	do j = 1, f1%par_nv2
+		! 		call Get_param_Vr(f1, j, Vr)
+		! 		S = S + f1%DistF(i, j, 50) * Vr
+		! 	end do
+		! 	S = S * 2.0 * par_pi * (f1%par_Rv2 - f1%par_Lv2)/f1%par_nv2
+		! 	cp = sqrt(2.0 * TH_mas(50))
+		! 	fa = nH_mas(50) * 1.0/(cp * par_sqrtpi) * exp(-(Vx - vH_mas(50))**2/cp**2)
+		! 	WRITE (1, *) Vx, S, fa
+		! end do
+		! close(1)
+		! stop
+
+
+		! !$omp do private(wx, wr, i, j)
+		do k = 1, par_n
+			if(nH_mas(k) < 0.0001) then
+				mas_TF(k) = .False.
+				CYCLE
+			end if
+			do i = 1, par_nv1
+				do j = 1, par_nv2
+					call Get_param_Vx(f1, i, wx)
+					call Get_param_Vr(f1, j, wr)
+					!iijj2(k, i, j) = f1%DistF(i, j, k)
+					!iijj2(k, i, j) = f1%DistF(i, j, k) - nH_mas(k) * f_maxwell(wx, wr, vH_mas(k), sqrt(2.0 * TH_mas(k)))
+					iijj2(k, i, j) = iijj2(k, i, j) - nH_mas(k) * f_maxwell(wx, wr, vH_mas(k), sqrt(2.0 * TH_mas(k)))
+					dnH_mas(k) = dnH_mas(k) + dabs(iijj2(k, i, j))
+				end do
+			end do
+
+			if(nH_mas(k) < 0.0001 .or. dnH_mas(k) < 0.0001) mas_TF(k) = .False.
+
+		end do
+		! !$omp end do
+
+		!$omp parallel
+		!$omp do private(nH, aa, bb, bl, bl1, mj, pj, mj1, pj1, al1, al, mi, pi, mi1, pi1, kkk, ii1, jj1, wr1, wx1, wy1, wz1, &
+		!$omp lx, ly, lz, ksiax, ksiay, ksiaz, gxy, wwy, wwz, wwy1, wwz1, gx, gy, gz, i1, j1, i, j, ii, jj, k, &
+		!$omp  potok, ksi1, ksi2, ksi3, ksi4, ksi5, eps, phi, chi, g, the, wwx, wwr, wwx1, wwr1, wx, wr, vH, TH)
+        do N = 1, N_MK
+			potok = (omp_get_thread_num() + 1)
+            call M_K_rand(sensor(1, 1, potok), sensor(2, 1, potok), sensor(3, 1, potok), ksi1)
+            call M_K_rand(sensor(1, 2, potok), sensor(2, 2, potok), sensor(3, 2, potok), ksi2)
+            call M_K_rand(sensor(1, 2, potok), sensor(2, 2, potok), sensor(3, 2, potok), ksi3)
+            call M_K_rand(sensor(1, 1, potok), sensor(2, 1, potok), sensor(3, 1, potok), ksi4)
+            call M_K_rand(sensor(1, 2, potok), sensor(2, 2, potok), sensor(3, 2, potok), ksi5)
+
+            eps = 2.0 * par_pi * ksi1
+            phi = 2.0 * par_pi * ksi2
+            the = acos(1.0 - 2.0 * ksi3)
+
+            g = MK_g_Get(ksi4)
+            chi = MK_chi_Get(ksi5, g)
+
+			gx = g * sin(the) * cos(phi)
+			gy = g  * sin(the) * sin(phi)
+			gz = g * cos(the)
+			gxy = sqrt(gx**2 + gy**2)
+			lx = gx/g * cos(chi) - gx * gz/g/gxy * cos(eps) * sin(chi) + gy/gxy * sin(eps) * sin(chi)
+			ly = gy/g * cos(chi) - gy * gz/g/gxy * cos(eps) * sin(chi) - gx/gxy * sin(eps) * sin(chi)
+			lz = gz/g * cos(chi) + gxy/g * cos(eps) * sin(chi)
+			ksiaz = 0.5 * (- gz)
+
+			do ii = 1, f1%par_nv1
+				call Get_param_Vx(f1, ii, wx)
+				do jj = 1, f1%par_nv2
+					call Get_param_Vr(f1, jj, wr)
+
+					ksiax = 0.5 * (2.0 * wx - gx)
+					ksiay = 0.5 * (2.0 * wr - gy)
+
+					wwx = ksiax + 0.5 * g * lx
+					wwy = ksiay + 0.5 * g * ly
+					wwz = ksiaz + 0.5 * g * lz
+
+					wwx1 = ksiax - 0.5 * g * lx
+					wwy1 = ksiay - 0.5 * g * ly
+					wwz1 = ksiaz - 0.5 * g * lz
+
+					wwr = sqrt(wwy**2 + wwz**2)
+					wwr1 = sqrt(wwy1**2 + wwz1**2)
+
+					wx1 = wx - gx
+					wy1 = wr - gy
+					wz1 = - gz
+
+					wr1 = sqrt(wy1**2 + wz1**2)
+
+					if(wwx < f1%par_Lv1 .or. wwx1 < f1%par_Lv1 .or. wwx > f1%par_Rv1 .or. wwx1 > f1%par_Rv1) GOTO 11
+					if(wwr > f1%par_Rv2 .or. wwr1 > f1%par_Rv2) GOTO 11
+
+					i = INT((wwx - f1%par_Lv1)/du) + 1
+					if(i < 1) i = 1
+					mi = i
+					pi = i + 1
+					al = (wwx - f1%par_Lv1 - (mi - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1))/((pi - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1) - (mi - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1))
+					if(i > f1%par_nv1) then
+						i = f1%par_nv1
+						mi = i
+						pi = i
+						al = 0.0
+					end if
+					if(al > 0.5) i = pi
+
+					i1 = INT((wwx1 - f1%par_Lv1)/du) + 1
+					if(i1 < 1) i1 = 1
+					mi1 = i1
+					pi1 = i1 + 1
+					al1 = (wwx1 - f1%par_Lv1 - (mi1 - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1))/((pi1 - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1) - (mi1 - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1))
+					if(i1 > f1%par_nv1) then
+						i1 = f1%par_nv1
+						mi1 = i1
+						pi1 = i1
+						al1 = 0.0
+					end if
+					if(al1 > 0.5) i1 = pi1
+
+					! print*, "++++ ", wwx1, f1%par_Lv1 + (mi1 - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1), f1%par_Lv1 + (pi1 - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1)
+					! print*, mi1, pi1
+					! print*, al1
+					! pause
+
+
+					j = INT((wwr)/dv)
+					if(j < 1) j = 1
+					mj = j
+					pj = j + 1
+					bl = (wwr - f1%par_Lv2 - (mj - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2))/((pj - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2) - (mj - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2))
+					if(j > f1%par_nv2) then
+						j = f1%par_nv2
+						mj = j
+						pj = j
+						bl = 0.0
+					end if
+					if(bl > 0.5) j = pj
+
+					j1 = INT((wwr1)/dv)
+					if(j1 < 1) j1 = 1
+					mj1 = j1
+					pj1 = j1 + 1
+					bl1 = (wwr1 - f1%par_Lv2 - (mj1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2))/((pj1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2) - (mj1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2))
+					if(j1 > f1%par_nv2) then
+						j1 = f1%par_nv2
+						mj1 = j1
+						pj1 = j1
+						bl1 = 0.0
+					end if
+					if(bl1 > 0.5) j1 = pj1
+
+					!print*, "++++ ", wwr1, j1, (j1 - 1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2), (j1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2), (j1 + 1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2)
+					!pause
+
+					! if(f_maxwell(wwx1, wwr1, 0.0_8, 0.816497_8) > 0.1) then
+					! print*, f_maxwell(wwx, wwr, 0.0_8, 0.816497_8), f_maxwell(wwx1, wwr1, 0.0_8, 0.816497_8)
+					! print*, iijj2(k, i, j), iijj2(k, i1, j1), i, j, i1, j1
+					! print*, f_maxwell(wwx, wwr, 0.0_8, 0.816497_8) - iijj2(k, i, j), f_maxwell(wwx1, wwr1, 0.0_8, 0.816497_8) - iijj2(k, i1, j1)
+					! print*, "1 -------------"
+					! pause
+					! end if
+
+					
+					
+
+					call omp_set_lock(mutex(ii, jj))
+					do k = 1, f1%par_n
+						if(mas_TF(k) == .False.) CYCLE
+
+
+						! aa = (1.0 - al) * (1.0 - bl) * iijj2(k, mi, mj) + al * (1.0 - bl) * iijj2(k, pi, mj) + &
+						! 	(1.0 - al) * bl * iijj2(k, mi, pj) + al * bl * iijj2(k, pi, pj)
+
+						! bb = (1.0 - al1) * (1.0 - bl1) * iijj2(k, mi1, mj1) + al1 * (1.0 - bl1) * iijj2(k, pi1, mj1) + &
+						! 	(1.0 - al1) * bl1 * iijj2(k, mi1, pj1) + al1 * bl1 * iijj2(k, pi1, pj1)
+
+						!Q1mHH(ii, jj, k) = Q1mHH(ii, jj, k) + f1%DistF(i, j, k) * f1%DistF(i1, j1, k)
+
+						aa = iijj2(k, i, j)
+						bb = iijj2(k, i1, j1)
+						vH = vH_mas(k)
+						TH = sqrt(2.0 * TH_mas(k))
+						nH = nH_mas(k)
+
+						!!iijj(k, ii, jj) = iijj(k, ii, jj) + iijj2(k, i, j) * iijj2(k, i1, j1)
+						iijj(k, ii, jj) = iijj(k, ii, jj) + nH * 1.0/(TH**3 * par_pi**1.5) * (exp(-(wwx - vH)**2/TH**2 - (wwr)**2/TH**2) * bb + &
+									exp(-(wwx1 - vH)**2/TH**2 - (wwr1)**2/TH**2) * aa) + &
+									aa * bb
+
+
+						!!iijj(k, ii, jj) = iijj(k, ii, jj) + aa * bb
+						!iijj(k, ii, jj) = iijj(k, ii, jj) + f_maxwell(wwx, wwr, 0.0_8, 0.816497_8) * f_maxwell(wwx1, wwr1, 0.0_8, 0.816497_8)
+					end do
+					call omp_unset_lock(mutex(ii, jj))
+
+					11 continue 
+
+					if(wx1 < f1%par_Lv1 .or. wx1 > f1%par_Rv1 .or. wr1 > f1%par_Rv2) CYCLE
+
+					ii1 = INT((wx1 - f1%par_Lv1)/du) + 1
+					if(ii1 < 1) ii1 = 1
+					mi1 = ii1
+					pi1 = ii1 + 1
+					al1 = (wx1 - f1%par_Lv1 - (mi1 - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1))/((pi1 - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1) - (mi1 - 0.5) * (f1%par_Rv1 - f1%par_Lv1)/(f1%par_nv1))
+					if(ii1 > f1%par_nv1) then
+						ii1 = f1%par_nv1
+						mi1 = ii1
+						pi1 = ii1
+						al1 = 0.0
+					end if
+					if(al1 > 0.5) ii1 = pi1
+
+					jj1 = INT((wr1)/dv)
+					if(jj1 < 1) jj1 = 1
+					mj1 = jj1
+					pj1 = jj1 + 1
+					bl1 = (wr1 - f1%par_Lv2 - (mj1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2))/((pj1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2) - (mj1 - 0.5) * (f1%par_Rv2 - f1%par_Lv2)/(f1%par_nv2))
+					if(jj1 > f1%par_nv2) then
+						jj1 = f1%par_nv2
+						mj1 = jj1
+						pj1 = jj1
+						bl1 = 0.0
+					end if
+					if(bl1 > 0.5) jj1 = pj1
+
+					! if(f_maxwell(wx1, wr1, 0.0_8, 0.816497_8) > 0.1) then
+					! print*, f_maxwell(wx, wr, 0.0_8, 0.816497_8), f_maxwell(wx1, wr1, 0.0_8, 0.816497_8)
+					! print*, iijj2(k, ii, jj), iijj2(k, ii1, jj1), ii1, jj1
+					! print*, f_maxwell(wx, wr, 0.0_8, 0.816497_8) - iijj2(k, ii, jj), f_maxwell(wx1, wr1, 0.0_8, 0.816497_8) - iijj2(k, ii1, jj1)
+					! print*, "2 -------------"
+					! pause
+					! end if
+
+					call omp_set_lock(mutex2(ii, jj))
+					do k = 1, f1%par_n
+						if(mas_TF(k) == .False.) CYCLE
+
+						!!bb = (1.0 - al1) * (1.0 - bl1) * iijj2(k, mi1, mj1) + al1 * (1.0 - bl1) * iijj2(k, pi1, mj1) + &
+						!!	(1.0 - al1) * bl1 * iijj2(k, mi1, pj1) + al1 * bl1 * iijj2(k, pi1, pj1)
+						vH = vH_mas(k)
+						TH = sqrt(2.0 * TH_mas(k))
+						nH = nH_mas(k)
+
+						!Q1mHH(ii, jj, k) = Q1mHH(ii, jj, k) + f1%DistF(i, j, k) * f1%DistF(i1, j1, k)
+						iijj3(k, ii, jj) = iijj3(k, ii, jj) + iijj2(k, ii1, jj1)! * iijj2(k, ii, jj)
+						iijj(k, ii, jj) = iijj(k, ii, jj) - iijj2(k, ii, jj) * &
+									nH * 1.0/(TH**3 * par_pi**1.5) * exp(-(wx1 - vH)**2/TH**2 - (wr1)**2/TH**2)
+
+
+						!!iijj3(k, ii, jj) = iijj3(k, ii, jj) + bb! * iijj2(k, ii, jj)
+						!iijj3(k, ii, jj) = iijj3(k, ii, jj) + f_maxwell(wx1, wr1, 0.0_8, 0.5_8)
+						!!iijj3(k, ii, jj) = iijj3(k, ii, jj) + f_maxwell(wx, wr, 0.0_8, 0.816497_8) * f_maxwell(wx1, wr1, 0.0_8, 0.816497_8)
+					end do
+					call omp_unset_lock(mutex2(ii, jj))
+
+
+
+				end do
+			end do
+        end do
+		!$omp end do
+		!$omp end parallel
+
+
+		do k = 1, par_n
+			do i = 1, par_nv1
+				do j = 1, par_nv2
+					Q1mHH(i, j, k) = iijj(k, i, j)
+					Q1pHH(i, j, k) = iijj3(k, i, j)
+				end do
+			end do
+		end do
+
+
+        Q1mHH(:, :, :) = Q1mHH(:, :, :) * (MK_norm_A/N_MK)
+        Q1pHH(:, :, :) = Q1pHH(:, :, :) * (MK_norm_A/N_MK)
+		
+	end subroutine Calc_Q1mHH_all_k_Makswel
+
+	subroutine Calc_Q(ff, g, now, step)
 		TYPE (DistF), intent(in out), TARGET :: ff
 		TYPE (GD), intent(in) :: g
-		integer(4), intent(in) :: now
+		integer(4), intent(in) :: now, step
 		integer(4) :: k, i, j, ii, jj, potok
 		real(8) :: x, Vx, Vr, Wx, Wr
 		real(8) :: dWx, dWr, A, B, r, ecint, nH
@@ -1372,113 +2276,121 @@ module Distfunc
 		
         !! Учёт перезарядки
 		if(.True.) then
-		!$omp do private(tab2, SS2, potok, nullf, i, j, ii, jj, x, Vx, Vr, Wx, Wr, A, B, u, S, cp, uz, r, ecint, SS, tab, nH, u_proton, rho, SQ2, SQ3) schedule(dynamic, 2)
-		do k = 1, ff%par_n  ! Пробегаемся по пространству
-		
-			potok = (omp_get_thread_num() + 1)
-			cp = proton(3, k)
-			u_proton = proton(2, k)
-			rho = proton(1, k)
-
-			if(rho < 0.00001) then
-				Q1m(:, :, k) = 0.0_8
-				Q1p(:, :, k) = 0.0_8
-				Q2(k) = 0.0_8
-				Q3(k) = 0.0_8
-				CYCLE
-			end if
-
-			nH = nH_mas(k)
-			if(nH < 0.00001) then
-				Q1m(:, :, k) = 0.0_8
-				Q1p(:, :, k) = 0.0_8
-				Q2(k) = 0.0_8
-				Q3(k) = 0.0_8
-				CYCLE
-			end if
+			!$omp do private(tab2, SS2, potok, nullf, i, j, ii, jj, x, Vx, Vr, Wx, Wr, A, B, u, S, cp, uz, r, ecint, SS, tab, nH, u_proton, rho, SQ2, SQ3) schedule(dynamic, 2)
+			do k = 1, ff%par_n  ! Пробегаемся по пространству
 			
-			S = 0.0
+				potok = (omp_get_thread_num() + 1)
+				cp = proton(3, k)
+				u_proton = proton(2, k)
+				rho = proton(1, k)
 
-			! Для Q1p
-			
+				if(rho < 0.00001) then
+					Q1m(:, :, k) = 0.0_8
+					Q1p(:, :, k) = 0.0_8
+					Q2(k) = 0.0_8
+					Q3(k) = 0.0_8
+					CYCLE
+				end if
 
-			
-			! Для Q1m
-			SQ2 = 0.0
-			SQ3 = 0.0
+				nH = nH_mas(k)
+				if(nH < 0.00001) then
+					Q1m(:, :, k) = 0.0_8
+					Q1p(:, :, k) = 0.0_8
+					Q2(k) = 0.0_8
+					Q3(k) = 0.0_8
+					CYCLE
+				end if
+				
+				S = 0.0
 
-			do i = 1, ff%par_nv1
-				!!if(nullf(i) == .False.) CYCLE
-				call Get_param_Vx(ff, i, Vx)
-				do j = 1, ff%par_nv2
-					call Get_param_Vr(ff, j, Vr)
-					S = 0.0
-					SS = 0.0
-					SS2 = 0.0
+				! Для Q1p
+				
 
-					do ii = 1, ff%par_nv1
-						call Get_param_Vx(ff, ii, Wx)
-						do jj = 1, ff%par_nv2
-							call Get_param_Vr(ff, jj, Wr)
-							tab = Omega1(i, j, ii, jj)! Tab1_Get(A, B)
-							!!if(nullf(ii) == .True.) 
-							S = S + Wr * ff%DistF(ii, jj, k) * tab
-							SS = SS + Wr * f_maxwell(Wx, Wr, u_proton, cp) * tab
-							!!if(nullf(i) == .True.) then
-								SQ2 = SQ2 + tab * Wr * Vr * (Vx - Wx) * f_maxwell(Wx, Wr, u_proton, cp) * ff%DistF(i, j, k)
-								SQ3 = SQ3 + tab * Wr * Vr * (Vx**2 + Vr**2 - Wx**2 - Wr**2) * f_maxwell(Wx, Wr, u_proton, cp) * ff%DistF(i, j, k)
-							!!end if
+				
+				! Для Q1m
+				SQ2 = 0.0
+				SQ3 = 0.0
+
+				do i = 1, ff%par_nv1
+					!!if(nullf(i) == .False.) CYCLE
+					call Get_param_Vx(ff, i, Vx)
+					do j = 1, ff%par_nv2
+						call Get_param_Vr(ff, j, Vr)
+						S = 0.0
+						SS = 0.0
+						SS2 = 0.0
+
+						do ii = 1, ff%par_nv1
+							call Get_param_Vx(ff, ii, Wx)
+							do jj = 1, ff%par_nv2
+								call Get_param_Vr(ff, jj, Wr)
+								tab = Omega1(i, j, ii, jj)! Tab1_Get(A, B)
+								!!if(nullf(ii) == .True.) 
+								S = S + Wr * ff%DistF(ii, jj, k) * tab
+								SS = SS + Wr * f_maxwell(Wx, Wr, u_proton, cp) * tab
+								!!if(nullf(i) == .True.) then
+									SQ2 = SQ2 + tab * Wr * Vr * (Vx - Wx) * f_maxwell(Wx, Wr, u_proton, cp) * ff%DistF(i, j, k)
+									SQ3 = SQ3 + tab * Wr * Vr * (Vx**2 + Vr**2 - Wx**2 - Wr**2) * f_maxwell(Wx, Wr, u_proton, cp) * ff%DistF(i, j, k)
+								!!end if
+							end do
 						end do
+
+						Q1m(i, j, k) = S * 2.0_8 * dWx * dWr! * 2.0 * par_pi
+						Q1p(i, j, k) = SS * 2.0_8 * dWx * dWr!
+						!! Предлагается здесь сразу умножить источники на то что надо
+						Q1m(i, j, k) = Q1m(i, j, k) * rho * f_maxwell(Vx, Vr, u_proton, cp)
 					end do
-
-					Q1m(i, j, k) = S * 2.0_8 * dWx * dWr! * 2.0 * par_pi
-					Q1p(i, j, k) = SS * 2.0_8 * dWx * dWr!
-					!! Предлагается здесь сразу умножить источники на то что надо
-					Q1m(i, j, k) = Q1m(i, j, k) * rho * f_maxwell(Vx, Vr, u_proton, cp)
 				end do
+
+				Q2(k) = QKnHp * SQ2 * 4.0_8 * par_pi * dWx * dWr * dWx * dWr  ! nH  На rho надо умножить в программе газовой динамики
+				Q3(k) = QKnHp * SQ3 * 2.0_8 * par_pi * dWx * dWr * dWx * dWr  ! nH  На rho надо умножить в программе газовой динамики
+
+				!! Предлагается здесь сразу умножить источники на то что надо (чтобы в основной программе не умножать и не вычислять параметры плазмы)
+				Q1p(:, :, k) = Q1p(:, :, k) * rho * KnHp
+				Q1m(:, :, k) = Q1m(:, :, k) * KnHp
 			end do
-
-			Q2(k) = QKnHp * nH * SQ2 * 4.0_8 * par_pi * dWx * dWr * dWx * dWr  ! На rho надо умножить в программе газовой динамики
-			Q3(k) = QKnHp * nH * SQ3 * 2.0_8 * par_pi * dWx * dWr * dWx * dWr  ! На rho надо умножить в программе газовой динамики
-
-			!! Предлагается здесь сразу умножить источники на то что надо (чтобы в основной программе не умножать и не вычислять параметры плазмы)
-			Q1p(:, :, k) = Q1p(:, :, k) * rho * KnHp
-			Q1m(:, :, k) = Q1m(:, :, k) * KnHp
-		end do
-		!$omp end do
+			!$omp end do
 		end if
 
 		!$omp end parallel
 
 		!! Учёт HH-столкновений ----------------------------------------------------------
 
+		Q1pHH = 0.0
+		Q1mHH = 0.0
+
 		if(.True.) then
+
 			! Для Q1pHH
-			if(.True.) then
-			do i = 1, ff%par_nv1
-				call Get_param_Vx(ff, i, Vx)
-				do j = 1, ff%par_nv2
-					call Get_param_Vr(ff, j, Vr)
-					Q1pHH(i, j, :) = 0.0
-					do ii = 1, ff%par_nv1
-						call Get_param_Vx(ff, ii, Wx)
-						do jj = 1, ff%par_nv2
-							call Get_param_Vr(ff, jj, Wr)
-							tab2 = Omega2(i, j, ii, jj)
+			if(.False.) then
+				do i = 1, ff%par_nv1
+					call Get_param_Vx(ff, i, Vx)
+					do j = 1, ff%par_nv2
+						call Get_param_Vr(ff, j, Vr)
+						Q1pHH(i, j, :) = 0.0
+						do ii = 1, ff%par_nv1
+							call Get_param_Vx(ff, ii, Wx)
+							do jj = 1, ff%par_nv2
+								call Get_param_Vr(ff, jj, Wr)
+								tab2 = Omega2(i, j, ii, jj)
 
 
-							do k = 1, ff%par_n  ! Пробегаемся по пространству
-								if(nH_mas(k) < 0.00001) then
-									CYCLE
-								end if
-								Q1pHH(i, j, k) = Q1pHH(i, j, k) + Wr * ff%DistF(ii, jj, k) * tab2 * 2.0_8 * dWx * dWr
+								do k = 1, ff%par_n  ! Пробегаемся по пространству
+									if(nH_mas(k) < 0.00001) then
+										CYCLE
+									end if
+									Q1pHH(i, j, k) = Q1pHH(i, j, k) + Wr * ff%DistF(ii, jj, k) * ff%DistF(i, j, k) * tab2
+								end do
 							end do
 						end do
+						!Q1pHH(i, j, k) = SS2 * 2.0_8 * dWx * dWr!
 					end do
-					!Q1pHH(i, j, k) = SS2 * 2.0_8 * dWx * dWr!
 				end do
-			end do
+
+				Q1pHH = Q1pHH * 2.0_8 * dWx * dWr
 			end if
+
+			
 
 			! Для Q1mHH
 			! if(.False.) then
@@ -1500,27 +2412,26 @@ module Distfunc
 			!! Предлагается здесь сразу умножить источники на то что надо (чтобы в основной программе не умножать и не вычислять параметры плазмы)
 			!Q1pHH(:, :, k) = Q1pHH(:, :, k) * nH * KnHH
 			!Q1mHH(:, :, k) = Q1mHH(:, :, k) * nH * KnHH
-		
+
+			! call Calc_Q1mHH_all_k(nH_mas)
+			call Calc_Q1mHH_all_k_Makswel(nH_mas, step)
+
+			Q1pHH = Q1pHH * KnHH
+			Q1mHH = Q1mHH * KnHH
 		
 		end if
 
+		! print*, "60 HH Integr = ", Q1mHH(60, 3, 60), Q1pHH(60, 3, 60)
+		! print*, "60 HP Integr = ", Q1m(60, 3, 60), Q1p(60, 3, 60)
+
+		! print*, "50 HH Integr = ", Q1mHH(60, 3, 50), Q1pHH(60, 3, 50)
+		! print*, "50 HP Integr = ", Q1m(60, 3, 50), Q1p(60, 3, 50)
+
+		! print*, "40 HH Integr = ", Q1mHH(60, 3, 40), Q1pHH(60, 3, 40)
+		! print*, "40 HP Integr = ", Q1m(60, 3, 40), Q1p(60, 3, 40)
+
 		
-		call Calc_Q1mHH_all_k(nH_mas)
-		print*, "Integr = ", Q1mHH(60, 3, ff%par_n/2)
-		do k = 1, ff%par_n
-			Q1mHH(:, :, k) = Q1mHH(:, :, k) * nH_mas(k) * KnHH
-		end do
 
-		do k = 1, ff%par_n  ! Пробегаемся по пространству
-			Q1pHH(:, :, k) = Q1pHH(:, :, k) * nH_mas(k) * KnHH
-			Q1mHH(:, :, k) = Q1mHH(:, :, k) * nH_mas(k) * KnHH
-		end do
-
-
-
-		!!
-		! Q1pHH = 0.0
-		! Q1mHH = 0.0
 
 		end_time = omp_get_wtime()
 		print *, "Time work: ", (end_time-start_time), "   in secunds"
@@ -1692,9 +2603,6 @@ module Distfunc
 		write(unit=name,fmt='(i5.5)') num
 		
 		open(1, file = "save_" // name // ".bin", FORM = 'BINARY')
-
-		call Print_rho(f1, name)
-		call Print_GD(gd1, name, 1.0_8)
 		
 		write(1)  f1%par_n, f1%par_nv1, f1%par_nv2, f1%par_L, f1%par_R
 		write(1)  f1%DistF
@@ -1704,7 +2612,32 @@ module Distfunc
 
 		close(1)
 
+		call Print_rho(f1, name)
+		call Print_GD(gd1, name, 1.0_8)
+
 	end subroutine Save_setka_bin
+
+	subroutine Read_setka_bin(num)
+		! Variables
+		integer, intent(in) :: num
+		character(len=5) :: name
+		integer :: i
+
+		
+		write(unit=name,fmt='(i5.5)') num
+		
+		open(1, file = "save_" // name // ".bin", FORM = 'BINARY', ACTION = "READ")
+
+		
+		read(1)  f1%par_n, f1%par_nv1, f1%par_nv2, f1%par_L, f1%par_R
+		read(1)  f1%DistF
+
+		read(1) gd1%par_n
+		read(1) gd1%par
+
+		close(1)
+
+	end subroutine Read_setka_bin
 
 	real(8) pure function MK_int_1_f1(x)
 

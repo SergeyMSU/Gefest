@@ -5,13 +5,17 @@ module STORAGE
 	
 	real(8), parameter :: par_pi = acos(-1.0_8) 
     real(8), parameter :: par_sqrtpi = sqrt(par_pi)
-	real(8), parameter :: par_a_2 = 0.0991561_8 
-	real(8), parameter :: par_N = 20_8 
-	real(8), parameter :: RRR = 5.0_8
-	real(8), parameter :: par_g_max = sqrt(2.0**2 + 4.0 * 2.0**2)    ! Ограничение относительной скорости
-	real(8), parameter :: KnHH = 0.0125676    ! Ограничение относительной скорости
-	real(8), parameter :: KnHp = 5.14822    ! Ограничение относительной скорости
-	real(8), parameter :: QKnHp = 5.14822    ! Ограничение относительной скорости
+	real(8), parameter :: par_a_2 = 0.119268_8 
+	real(8), parameter :: RRR = 1.0_8  ! Для атомов правая граница
+	real(8), parameter :: par_g_max = sqrt(6.0**2 + 4.0 * 3.0**2)    ! Ограничение относительной скорости
+	real(8), parameter :: KnHH = 0.125676    ! Ограничение относительной скорости
+	real(8), parameter :: KnHp = 1.18612    ! Ограничение относительной скорости
+	real(8), parameter :: QKnHp = 35.5837    ! Ограничение относительной скорости
+
+	integer(4), parameter :: par_n = 1000
+	integer(4), parameter :: par_nv1 = 80   !! ДОЛЖНО БЫТЬ ЧЁТНЫМ  (если поменяем, нужно менять файл time_step)
+	integer(4), parameter :: par_nv2 = 40
+
 
 	integer, PARAMETER :: MK_n_potok = 24       ! Количество потоков для массива с датчиками случайных чисел
 
@@ -39,12 +43,12 @@ module STORAGE
 
 	
 	TYPE DistF 
-		integer(4) :: par_n = 700
+		integer(4) :: par_n = 1000
 
-		integer(4) :: par_nv1 = 120   !! ДОЛЖНО БЫТЬ ЧЁТНЫМ  (если поменяем, нужно менять файл time_step)
-		integer(4) :: par_nv2 = 35
+		integer(4) :: par_nv1 = 80   !! ДОЛЖНО БЫТЬ ЧЁТНЫМ  (если поменяем, нужно менять файл time_step)
+		integer(4) :: par_nv2 = 40
 	
-		real(8) :: par_L = -5.0_8
+		real(8) :: par_L = -2.0_8
 		real(8) :: par_R = RRR
 		real(8) :: par_Lv1 = -3.0_8! -3.2_8
 		real(8) :: par_Rv1 = 3.0_8
@@ -52,7 +56,7 @@ module STORAGE
 		real(8) :: par_Rv2 = 3.0_8
 		
 		real(8) :: par_Usr = 0.0_8! 2.54351_8
-		real(8) :: par_c = 1.41421_8
+		real(8) :: par_c = 0.258199_8
 		real(8) :: par_nH = 1.0
 	
 		real(8), allocatable :: DistF(:, :, :)   ! Частицы (par_nv1, par_nv2, par_n) = V1, V2, X
@@ -60,10 +64,10 @@ module STORAGE
 
 
 	TYPE GD 
-		integer(4) :: par_n = 3000
+		integer(4) :: par_n = 10000
 	
 		real(8) :: par_L = 0.0_8
-		real(8) :: par_R = 12.0_8
+		real(8) :: par_R = 1.5_8! 10.0_8
 		real(8) :: par_ggg = (5.0_8/3.0_8)
 		real(8) :: time_step
 		logical :: start = .True.
@@ -71,6 +75,9 @@ module STORAGE
 	
 		! real(8), allocatable :: X(:)   ! Координаты узлов (границ ячеек)
 		real(8), allocatable :: par(:, :, :)   ! (3, : par_n - 1, 2 t)
+		real(8), allocatable :: sr_par(:, :)   ! (3, : par_n - 1)  ! Промежуточный временной слой для схемы ГКР
+		real(8), allocatable :: dpar(:, :, :)   ! (3, : par_n - 1, 2)   ! Приращения для сехмы ГКР
+		! Здесь последние два - это не схема это приращение вправо и влево
 		!(rho, u, p)
 	END TYPE GD
 	
