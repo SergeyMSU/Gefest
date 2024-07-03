@@ -27,9 +27,11 @@ module Distfunc
 			allocate(QQ(f%par_nv1, f%par_nv2, f%par_n))
 			allocate(Q2(f%par_n))
 			allocate(Q3(f%par_n))
+			allocate(nu_all(f%par_n))
 			QQ = 0.0
 			Q2 = 0.0
 			Q3 = 0.0
+			nu_all = 0.0
 
 			allocate(Q1m(f%par_nv1, f%par_nv2, f%par_n))
 			allocate(Q1p(f%par_nv1, f%par_nv2, f%par_n))
@@ -52,7 +54,11 @@ module Distfunc
 				call Get_param_Vr(f, j, Vr)
 				do i = 1, f%par_nv1
 					call Get_param_Vx(f, i, Vx)
-					if(x <= 0.0) f%DistF(i, j, k) = f%par_nH * f_maxwell(Vx, Vr, f%par_Usr, f%par_c)
+					if(x <= 0.0) then
+						f%DistF(i, j, k) = 1.0 * f_maxwell(Vx, Vr, 0.0_8, 1.0_8)
+					else
+						f%DistF(i, j, k) = 1.0 * f_maxwell(Vx, Vr, -0.602266_8, 0.85_8)
+					end if
 				end do
 			end do
 		end do
@@ -101,7 +107,7 @@ module Distfunc
 		allocate(g%dpar(3, g%par_n - 1, 2))
 
 		! Заполнения начальных условий
-		do i = 1, g%par_n - 1
+		do i = g%par_n/2 + 1, g%par_n - 1
 			g%par(1, i, 1) = pl_rho
 			g%par(1, i, 2) = pl_rho
 
@@ -110,6 +116,17 @@ module Distfunc
 
 			g%par(3, i, 1) = pl_p
 			g%par(3, i, 2) = pl_p
+		end do
+
+		do i = 1, g%par_n/2
+			g%par(1, i, 1) = 0.000001
+			g%par(1, i, 2) = 0.000001
+
+			g%par(2, i, 1) = 0.0_8
+			g%par(2, i, 2) = 0.0_8
+
+			g%par(3, i, 1) = 0.000001
+			g%par(3, i, 2) = 0.000001
 		end do
 
 
@@ -127,10 +144,11 @@ module Distfunc
 	end function get_coordinat_yzel
 
 
-	subroutine Start_GD(T, g, now2)
+	subroutine Start_GD(T, g, now2, sort_)
 		TYPE (GD), intent(in out) :: g
 		real(8), intent(in) :: T
 		integer(4), intent(in) :: now2  !! Какой номер меняем
+		integer(4), intent(in), optional :: sort_  !! Какой номер меняем
 		integer(4) :: i, j, now
 		real(8) :: dx, dx_do, newL, newR, w, QQ2, QQ3, x, x1, x2, x3, x4
 		real(8) :: par1(size(g%par(:, 1, 1)))
@@ -139,7 +157,10 @@ module Distfunc
 		real(8) :: normal, dsl, dsp, dsc, vvv
 		real(8) :: qqq1(9), qqq2(9), POTOK2(9), ro, p, u, ro2, p2, u2, pp, c0, Mach
 		logical :: contact, lin_Mach
-		integer(4) :: kdir, idgod, KOBL
+		integer(4) :: kdir, idgod, KOBL, sort
+
+		sort = 1
+		if(PRESENT(sort_)) sort = sort_
 
 		c0 = sqrt(g%par_ggg * pl_p/pl_rho)
 		contact = .False.
@@ -150,64 +171,24 @@ module Distfunc
 		now = mod(now2, 2) + 1
 		g%time_step = 100000.0
 
-		!! Считаем новое положение левой границы
-		!newL = g%par_L - 0.1 * T! + (g%par(2, 1, now) - 2.0/(g%par_ggg - 1.0) * sqrt(g%par_ggg * g%par(3, 1, now)/g%par(1, 1, now))) * T
-		! if(g%par(1, 1, now) > 0.00001) then
-		! 	newL = g%par_L  + (g%par(2, 1, now) - 2.0/(g%par_ggg - 1.0) * sqrt(g%par_ggg * g%par(3, 1, now)/g%par(1, 1, now))) * T
-		! else
-		! 	newL = g%par_L  + (g%par(2, 1, now)) * T
-		! end if
-
-		! qqq1(1) = 0.000001
-		! qqq1(5) = 0.000001
-		! qqq1(2) = g%par(2, 1, now)
-		! qqq1(3) = 0.0_8
-		! qqq1(4) = 0.0_8
-		! qqq1(6:8) = 0.0_8
-		! qqq1(9) = 0.0_8
-
-		! qqq2(1) = g%par(1, 1, now)
-		! qqq2(5) = g%par(3, 1, now)
-		! qqq2(2) = g%par(2, 1, now)
-		! qqq2(3) = 0.0_8
-		! qqq2(4) = 0.0_8
-		! qqq2(6:8) = 0.0_8
-		! qqq2(9) = 0.0_8
-		! w = 0.0_8
-		! call cgod3d(KOBL, 0, 0, 0, kdir, idgod, &
-		! 						1.0_8, 0.0_8, 0.0_8, 1.0_8, &
-		! 						w, qqq1(1:8), qqq2(1:8), &
-		! 						dsl, dsp, dsc, 1.0_8, 1.66666666666666_8, &
-		! 						POTOK2, kontact_ = contact)
-		! newL = g%par_L + dsl * T
-
 
 		!newL = g%par_L  - (c0) * T
-		!Mach = dabs(g%par(2, 1, now))/sqrt(g%par_ggg * g%par(3, 1, now)/g%par(1, 1, now))
-		vvv = (g%par(2, 1, now) - 2.0/(g%par_ggg - 1.0) * sqrt(g%par_ggg * g%par(3, 1, now)/g%par(1, 1, now)))
+		!newL = g%par_L  + vvv * T
+		!lin_Mach = .False.
 
-		!if(vvv > 0.0) vvv = - 2.0/(g%par_ggg - 1.0) * sqrt(g%par_ggg * pl_p)
-		!vvv = - 2.0/(g%par_ggg - 1.0) * sqrt(g%par_ggg * pl_p)
-
-		! if(Mach > 7) then
-		! 	vvv = (- 7.0/(g%par_ggg - 1.0) * sqrt(g%par_ggg * g%par(3, 1, now)/g%par(1, 1, now)))
+		! if(newL <= f1%par_L) then
+		! 	lin_Mach = .True.
+		! 	newL = f1%par_L
 		! end if
-
-		newL = g%par_L  + vvv * T
-		lin_Mach = .False.
-
-		if(newL <= f1%par_L) then
-			lin_Mach = .True.
-			newL = f1%par_L
-		end if
 
 		! newL = g%par_L  + (g%par(2, 1, now) - 2.0/(g%par_ggg - 1.0) * sqrt(g%par_ggg * g%par(3, 1, now)/g%par(1, 1, now))) * T
 		! if(newL < -1.5) newL = -1.5
 
+		newL = g%par_L
 		newR = g%par_R
 
 		dx = get_coordinat_yzel(2, newL, newR, g) - get_coordinat_yzel(1, newL, newR, g)
-		dx_do = get_coordinat_yzel(2, g%par_L, g%par_R, g) - get_coordinat_yzel(1, g%par_L, g%par_R, g)
+		dx_do = dx! get_coordinat_yzel(2, g%par_L, g%par_R, g) - get_coordinat_yzel(1, g%par_L, g%par_R, g)
 
 		g%dpar = 0.0
 
@@ -248,25 +229,6 @@ module Distfunc
 			call Get_Q(x, QQ2, QQ3)
 
 			do j = 1, 2
-
-			    ! if(j == 1) par1 = g%par(:, i, now) + g%dpar(:, i, 1)
-			    ! if(j == 2) par1 = g%par(:, i, now) + g%dpar(:, i, 2)
-
-				! if(par1(1) <= 0.00000000001) par1(1) = g%par(1, i, now)
-				! if(par1(3) <= 0.00000000001) par1(3) = g%par(3, i, now)
-
-				! if(i == 50) then
-				! 	print*, i, j
-				! 	print*, par1
-				! 	print*, "-2 ", (get_coordinat_yzel(i - 1, g%par_L, g%par_R, g) + get_coordinat_yzel(i - 2, g%par_L, g%par_R, g))/2.0, g%par(1, i - 2, now)
-				! 	print*, "-1 ", (get_coordinat_yzel(i, g%par_L, g%par_R, g) + get_coordinat_yzel(i - 1, g%par_L, g%par_R, g))/2.0, g%par(1, i - 1, now)
-				! 	print*, "0 ", x, g%par(1, i, now)
-				! 	print*, "1 ", (get_coordinat_yzel(i + 2, g%par_L, g%par_R, g) + get_coordinat_yzel(i + 1, g%par_L, g%par_R, g))/2.0, g%par(1, i + 1, now)
-				! 	print*, "2 ", (get_coordinat_yzel(i + 3, g%par_L, g%par_R, g) + get_coordinat_yzel(i + 2, g%par_L, g%par_R, g))/2.0, g%par(1, i + 2, now)
-				! 	print*, "____"
-				! 	pause
-				! end if
-
 				contact = .False.
 				dsl = 0.0
 				dsp = 0.0
@@ -274,35 +236,19 @@ module Distfunc
 					if(i == g%par_n - 1) then
 						par2 = par1
 					else
-						par2 = g%par(:, i + 1, now)! + g%dpar(:, i + 1, 2)
-						!if(par2(1) <= 0.00000000001) par2(1) = g%par(1, i + 1, now)
-						!if(par2(3) <= 0.00000000001) par2(3) = g%par(3, i + 1, now)
+						par2 = g%par(:, i + 1, now)
 					end if
 					normal = 1.0_8
-					w = normal * (get_coordinat_yzel(i + 1, newL, newR, g) - get_coordinat_yzel(i + 1, g%par_L, g%par_R, g))/T
+					w = 0.0_8 
 				else
-					w = (get_coordinat_yzel(i, newL, newR, g) - get_coordinat_yzel(i, g%par_L, g%par_R, g))/T
-					if(i == 1) then !! Граница с вакуумом
-						if(.False.) then! (lin_Mach == .False.) then
-							par2(1) = par1(1)
-							par2(3) = par1(3)
-							par2(2) = -par1(2) + 2.0 * w
-						else
-							par2(1) = par1(1)
-							par2(3) = par1(3) * 0.1
-							par2(2) = par1(2)
-						end if
-						! par2(1) = 0.000001
-						! par2(3) = 0.000001
-						! par2(2) = par1(2)
-						!print*, "w = ", w
+					w = 0.0_8 
+					if(i == 1) then 
+						par2 = par1
 					else
-						par2 = g%par(:, i - 1, now)! + g%dpar(:, i - 1, 1)
-						!if(par2(1) <= 0.00000000001) par2(1) = g%par(1, i - 1, now)
-						!if(par2(3) <= 0.00000000001) par2(3) = g%par(3, i - 1, now)
+						par2 = g%par(:, i - 1, now)
 					end if
 					normal = -1.0_8
-					w = normal * (get_coordinat_yzel(i, newL, newR, g) - get_coordinat_yzel(i, g%par_L, g%par_R, g))/T
+					w = 0.0_8 
 					
 				end if
 
@@ -324,8 +270,8 @@ module Distfunc
 				
 				!if(j == 2 .and. i == 1 .and. lin_Mach == .False.) contact = .True.
 
-				!if(.False.) then!
-				if(j == 2 .and. i == 1 .and. lin_Mach == .False.) then
+				if(.False.) then!
+					!if(j == 2 .and. i == 1 .and. lin_Mach == .False.) then
 					POTOK2 = 0.0
 				else
 					POTOK2 = 0.0
@@ -348,7 +294,7 @@ module Distfunc
 				end if
 
 				!$omp critical
-					g%time_step = min( g%time_step,  0.5 * dx/( max(dabs(dsl), dabs(dsp)) + dabs(w) ))
+					g%time_step = min( g%time_step,  0.1 * dx/( max(dabs(dsl), dabs(dsp)) + dabs(w) ))
 				!$omp end critical
 
 				!if (idgod == 2) print*, "ERROR 4i0u43h9h43t3r434r3"
@@ -362,20 +308,33 @@ module Distfunc
 			p = par1(3)
 			u = par1(2)
 
+			!! Если считаем мультифлюиды
+			! if(sort == 1) then
+			! 	QQ2 = Q2(i) * KnHp! QKnHp
+			! 	QQ3 = Q3(i) * KnHp! QKnHp
+			! else
+			! 	QQ2 = -Q2(i) * KnHp
+			! 	QQ3 = -Q3(i) * KnHp
+			! end if
+			
+
 			QQ2 = QQ2 * ro
 			QQ3 = QQ3 * ro
 
-			ro2 = par1(1) * dx_do/dx - T * (POTOK(1) / dx)
+			ro2 = par1(1) - T * (POTOK(1) / dx)
 			if(ro2 < 0.0) then
-				print*, "ro2 < 0", ro2, ro, i, lin_Mach, QQ2, QQ3
+				print*, "ro2 < 0", ro2, ro, i
+				print*, "___", sort, x
+				print*, "QQ = ", QQ2, QQ3
 				ro2 = 0.000001
 			end if
-			u2 = (ro * u * dx_do/dx - T * ( POTOK(2) / dx - QQ2)) / ro2
-			p2 = ((  ( p / (g%par_ggg - 1.0) + 0.5 * ro * u**2)  * dx_do/dx   &
+			u2 = (ro * u - T * ( POTOK(2) / dx - QQ2)) / ro2
+			p2 = ((  ( p / (g%par_ggg - 1.0) + 0.5 * ro * u**2)   &
                         - T * (POTOK(3)/ dx - QQ3) ) - 0.5 * ro2 * u2**2 ) * (g%par_ggg - 1.0)
 			if(p2 < 0.0) then
-				!print*, "p2 < 0", p2, p, i
-				p2 = 0.000001
+				print*, "p2 < 0", p2, p, i, sort, x
+				print*, "QQ = ", QQ2, QQ3
+				p2 = p/2
 			end if
 			
 			g%par(1, i, now2) = ro2
@@ -386,9 +345,6 @@ module Distfunc
 		! !$omp end do
 		! !$omp end parallel
 
-		g%par_L = newL
-
-		if(g%par_L < f1%par_L) print*, "ERROR LLL fwv4b643n6436"
 
 	end subroutine Start_GD
 
@@ -961,25 +917,95 @@ module Distfunc
 
 	end subroutine Integrate_Yorming
 
+	subroutine Calc_Sourse(now)
+		integer, intent(in) :: now
+		real(8) :: U_M_H(1), U_H(1), sigma(1), nu(1)
+		real(8) :: plasma(9)
+        real(8) :: fluid(5, 1)
+		integer :: i, k
+
+		fluid = 0.0_8
+		plasma = 0.0_8
+
+		Q2 = 0.0
+		Q3 = 0.0
+		nu_all = 0.0
+
+		do k = 1, gd1%par_n - 1
+			plasma(2) = gd1%par(2, k, now)
+			plasma(1) = gd1%par(1, k, now)
+			plasma(5) = gd1%par(3, k, now)
+
+
+			fluid(2, 1) = gd2%par(2, k, now)
+			fluid(1, 1) = gd2%par(1, k, now)
+			fluid(5, 1) = gd2%par(3, k, now)
+
+			if(plasma(1) < 0.000001 .or. fluid(1, 1) < 0.00001) then
+				Q2(k) = 0.0
+				Q3(k) = 0.0
+				nu_all(k) = 0.0
+				CYCLE
+			end if
+
+		do i = 1, 1
+			U_M_H(i) = sqrt( (plasma(2) - fluid(2, i))**2 + (plasma(3) - fluid(3, i))**2 + (plasma(4) - fluid(4, i))**2 + &
+			(64.0 / (9.0 * par_pi)) * (plasma(5) / plasma(1) + 2.0 * fluid(5, i) / fluid(1, i)) )
+			U_H(i) = sqrt( (plasma(2) - fluid(2, i))**2 + (plasma(3) - fluid(3, i))**2 + (plasma(4) - fluid(4, i))**2 + &
+			(4.0 / par_pi) * (plasma(5) / plasma(1) + 2.0 * fluid(5, i) / fluid(1, i)) )
+			sigma(i) = (1.0 - par_a_2 * log(U_M_H(i)))**2
+			nu(i) = plasma(1) * fluid(1, i) * U_M_H(i) * sigma(i)
+		end do
+
+		do i = 1, 1
+			Q2(k) =  nu(i) * (fluid(2, i) - plasma(2))
+			Q3(k) =  nu(i) * ( (fluid(2, i)**2 + fluid(3, i)**2 + fluid(4, i)**2 - &
+				plasma(2)**2 - plasma(3)**2 - plasma(4)**2)/2.0 + (U_H(i)/U_M_H(i)) * ( 2.0 * fluid(5, i)/fluid(1, i) - plasma(5)/plasma(1) ) )
+			nu_all(k) = nu(i)
+		end do
+
+		! if(nu_all(k) > 0.001 .and. k < 9000) then
+		! 	print*, "Sourse"
+		! 	print*, k, Q2(k), Q3(k), nu_all(k)
+		! 	print*, "____________"
+		! 	print*, plasma
+		! 	print*, "____________"
+		! 	print*, fluid
+		! 	print*, "____________"
+		! 	pause
+		! end if
+
+
+		end do
+
+	end subroutine Calc_Sourse
+
 	subroutine play_GD(T, now)
 		! Запускаем газовую динамику СТРОГО до времени T
 		real(8), intent(in) :: T
 		integer, intent(in out) :: now   ! При вхождении показывает какие параметры актуальны (соотвественно другие надо менять)
 		real(8) :: all_t, dt
-
+		integer :: st 
 		all_t = 0.0
+		st = 1
 
 		do while (all_t < T)
+			st = st + 1
+			!!dt = min(gd1%time_step, gd2%time_step)
 			dt = gd1%time_step
+			
 			if(all_t + dt > T) dt = T - all_t
-			call Start_GD(dt, gd1, now)
+			call Start_GD(dt, gd1, now, 1)
+			!!call Start_GD(dt, gd2, now, 2)
+			now = mod(now, 2) + 1
+			!!call Calc_Sourse(now)
 			!call Start_GD_GKR(dt, gd1, now)
 			all_t = all_t + dt
-			now = mod(now, 2) + 1
 			if(dt < 0.00000000001) then
 				print*, "Error  dt  =   ", dt
 				STOP
 			end if
+			if(mod(st, 1000) ==0) print*, st, "- dt = ", dt, all_t, T
 		end do
 
 		print*, "dt = ", dt
@@ -987,8 +1013,8 @@ module Distfunc
 		!print*, "dt = ", dt, T, gd1%par_L
 	end subroutine play_GD
 	
-	subroutine Integrate_Protiv_potoka(ff1, ff2, ff3, TT, now)
-		TYPE (DistF), intent(in out) :: ff1, ff2, ff3
+	subroutine Integrate_Protiv_potoka(ff1, ff2, TT, now)
+		TYPE (DistF), intent(in out) :: ff1, ff2
 		real(8), intent(in out) :: TT  ! Общее время решения
 		integer, intent(in out) :: now  ! Общее время решения
 		integer :: i, j, k, st, step, m, nnn
@@ -1001,17 +1027,6 @@ module Distfunc
  
 		metod_ytochn = .False.   !! Метод Королькова аналитического уточнения функции распределения 
 
-		st = 1
-		do i = ff1%par_nv1/2 + 1, ff1%par_nv1
-			nn(i) = st
-			st = st + 2
-		end do
-		st = 1
-		do i = ff1%par_nv1/2, 1, -1
-			nn(i) = st
-			st = st + 2
-		end do
-
 		dx = (ff1%par_R - ff1%par_L)/ff1%par_n
 
 		call Get_param_Vx(ff1, ff1%par_nv1, Vx_max)
@@ -1022,33 +1037,18 @@ module Distfunc
 		!print*, "dt_ex = ", dt_ex
 
 		call Get_param_Vx(ff1, ff1%par_nv1/2 + 1, Vx_min)
-		if(metod_ytochn) dt_global = dx/Vx_min                                    ! Шаг по времени (для функции распределения)
 		
-		! if (metod_ytochn) then
-		! 	TT = dt_global
-		! else
-		! 	TT = dt_global * 300
-		! end if
 		T1 = 0.0
 		dt_ex2 = 0.0
 
-		! Сохраняем исходную функцию распределение (чтобы от неё шагать точно)
-		do i = 1, ff1%par_nv1
-			do k = 3, ff1%par_n-2
-				do j = 1, ff1%par_nv2
-					ff3%DistF(i, j, k) = ff1%DistF(i, j, k)
-				end do
-			end do
-		end do
 
 		QQ = 0.0_8
 
 		nnn = 300
-		if(metod_ytochn) nnn = size(time_step)
 
-		nnn = (INT(TT/dt_global) + 2) * 2 !!2
+		nnn = (INT(TT/dt_global) + 2) !!2
 		dt_global = TT/nnn
-		dt_ex = dt_global * 2!!* 3.0 !! Время до перезарядки
+		dt_ex = dt_global / 2!!* 3.0 !! Время до перезарядки
 
 		do step = 1, nnn
 			if(mod(step, 1) == 0) print*, "step = ", step, "From = ", nnn
@@ -1065,13 +1065,13 @@ module Distfunc
 			nu_ex = 0.0_8
 			!print*, "dt = ", dt
 
-			call play_GD(dt, now)
+			!! call play_GD(dt, now)
 
 
 			if(dt_ex < dt_ex2) then
 				dt_ex2 = 0.0
 				!print*, "Start Calc_Q"
-				call Calc_Q(ff1, gd1, now, step) !! -----------------------------------------------
+				!! call Calc_Q(ff1, gd1, now, step) !! -----------------------------------------------
 				!print*, "End Calc_Q"
 			end if
 
@@ -1082,6 +1082,7 @@ module Distfunc
 				call Get_param_Vx(ff1, i, Vx)
 				nu = Vx * dt/dx
 
+
 				omeg = (4.0_8 * nu**2 + 1.0_8) * (4.0_8 - nu**2)/5.0_8
 				!omeg = (4 * nu**2 - nu**4)
 
@@ -1089,120 +1090,36 @@ module Distfunc
 
 				do k = 3, ff1%par_n-2
 					do j = 1, ff1%par_nv2
-						call Get_param_Vr(ff1, j, Vr)
+					
 						nu_ex = Q1p(i, j, k) + Q1pHH(i, j, k)! proton(1, k) * ff1%Q1p(i, j, k)
 						N_ex = Q1m(i, j, k) + Q1mHH(i, j, k)! proton(1, k) * f_maxwell(Vx, Vr, proton(2, k), proton(3, k)) * ff1%Q1m(i, j, k)
 
-						if(metod_ytochn == .False.) then
-							if(.false.) then
-								if(Vx > 0.0) then
-									
-									!dQ = dt * proton(1, k) * (-ff1%Q1p(i, j, k) * ff1%DistF(i, j, k) + &
-									!						f_maxwell(Vx, Vr, proton(2, k), proton(3, k)) * ff1%Q1m(i, j, k))
-									ff2%DistF(i, j, k) = ff1%DistF(i, j, k) - nu * (ff1%DistF(i, j, k) - ff1%DistF(i, j, k-1)) + &
-										0.5_8 * nu * (nu - 1.0_8) * (ff1%DistF(i, j, k) - 2.0_8 * ff1%DistF(i, j, k - 1) + ff1%DistF(i, j, k-2))! &
-										!+ dQ
-									!QQ(i, j, k) = QQ(i, j, k) + dQ 
-									!!if(ff2%DistF(i, j, k) < 0.0) ff2%DistF(i, j, k) = 0.0
-								else
-									!dQ = dt * proton(1, k) * (-ff1%Q1p(i, j, k) * ff1%DistF(i, j, k) + &
-									!							f_maxwell(Vx, Vr, proton(2, k), proton(3, k)) * ff1%Q1m(i, j, k))
-									ff2%DistF(i, j, k) = ff1%DistF(i, j, k) + nu * (3.0_8/2.0_8 * ff1%DistF(i, j, k) - &
-										2.0_8 * ff1%DistF(i, j, k + 1) + 0.5_8 * ff1%DistF(i, j, k + 2)) + &
-										0.5_8 * nu**2 * (ff1%DistF(i, j, k) - 2.0_8 * ff1%DistF(i, j, k + 1) + ff1%DistF(i, j, k+2))! &
-										!+ dQ
-									!QQ(i, j, k) = QQ(i, j, k) + dQ 
-									!!if(ff2%DistF(i, j, k) < 0.0) ff2%DistF(i, j, k) = 0.0
-								end if
-							else
-								umm = ff1%DistF(i, j, k - 2)
-								um = ff1%DistF(i, j, k - 1)
-								u = ff1%DistF(i, j, k)
-								up = ff1%DistF(i, j, k + 1)
-								upp = ff1%DistF(i, j, k + 2)
+						umm = ff1%DistF(i, j, k - 2)
+						um = ff1%DistF(i, j, k - 1)
+						u = ff1%DistF(i, j, k)
+						up = ff1%DistF(i, j, k + 1)
+						upp = ff1%DistF(i, j, k + 2)
 
-								u1mm = umm - 2.0_8/3.0_8 * nu * (um - umm)
-								u1m = um - 2.0_8/3.0_8 * nu * (u - um)
-								u1 = u - 2.0_8/3.0_8 * nu * (up - u)
-								u1p = up - 2.0_8/3.0_8 * nu * (upp - up)
+						u1mm = umm - 2.0_8/3.0_8 * nu * (um - umm)
+						u1m = um - 2.0_8/3.0_8 * nu * (u - um)
+						u1 = u - 2.0_8/3.0_8 * nu * (up - u)
+						u1p = up - 2.0_8/3.0_8 * nu * (upp - up)
 
-								u2m = (um + u1m - 2.0_8/3.0_8 * nu * (u1m - u1mm))/2.0_8
-								u2p = (up + u1p - 2.0_8/3.0_8 * nu * (u1p - u1))/2.0_8
-								ff2%DistF(i, j, k) = u - nu * (-2 * upp + 7 * up - 7 * um + 2 * umm)/24.0_8 - &
-									3.0_8/8.0_8 * nu * (u2p - u2m) - omeg/24.0_8 * (upp - 4 * up + 6 * u - 4 * um + umm)
-									
-								if(ff2%DistF(i, j, k) < 0.0) ff2%DistF(i, j, k) = 0.0
-							end if
-						else
-							dQ = dt * (-nu_ex * ff1%DistF(i, j, k) + N_ex)
-							! if(Vx > 0.0) then
-							! 	ff2%DistF(i, j, k) = ff1%DistF(i, j, k) - nu * (ff1%DistF(i, j, k) - ff1%DistF(i, j, k-1)) + &
-							! 		0.5_8 * nu * (nu - 1.0_8) * (ff1%DistF(i, j, k) - 2.0_8 * ff1%DistF(i, j, k - 1) + ff1%DistF(i, j, k-2)) &
-							! 		+ dQ
-							! 	QQ(i, j, k) = QQ(i, j, k) + dQ 
-							! else
-							! 	ff2%DistF(i, j, k) = ff1%DistF(i, j, k) + nu * (3.0_8/2.0_8 * ff1%DistF(i, j, k) - &
-							! 		2.0_8 * ff1%DistF(i, j, k + 1) + 0.5_8 * ff1%DistF(i, j, k + 2)) + &
-							! 		0.5_8 * nu**2 * (ff1%DistF(i, j, k) - 2.0_8 * ff1%DistF(i, j, k + 1) + ff1%DistF(i, j, k+2)) &
-							! 		+ dQ
-							! 	QQ(i, j, k) = QQ(i, j, k) + dQ 
-							! end if
-
-							umm = ff1%DistF(i, j, k - 2)
-							um = ff1%DistF(i, j, k - 1)
-							u = ff1%DistF(i, j, k)
-							up = ff1%DistF(i, j, k + 1)
-							upp = ff1%DistF(i, j, k + 2)
-
-							u1mm = umm - 2.0_8/3.0_8 * nu * (um - umm)
-							u1m = um - 2.0_8/3.0_8 * nu * (u - um)
-							u1 = u - 2.0_8/3.0_8 * nu * (up - u)
-							u1p = up - 2.0_8/3.0_8 * nu * (upp - up)
-
-							u2m = (um + u1m - 2.0_8/3.0_8 * nu * (u1m - u1mm))/2.0_8
-							u2p = (up + u1p - 2.0_8/3.0_8 * nu * (u1p - u1))/2.0_8
-							ff2%DistF(i, j, k) = u - nu * (-2 * upp + 7 * up - 7 * um + 2 * umm)/24.0_8 - &
-								3.0_8/8.0_8 * nu * (u2p - u2m) - omeg/24.0_8 * (upp - 4 * up + 6 * u - 4 * um + umm) + dQ
-
-						end if
-
-						if(metod_ytochn == .False.) then
-							if(nu_ex > 0.0000001) then
-								ff2%DistF(i, j, k) = ff2%DistF(i, j, k) * exp(-dt * nu_ex) + N_ex/nu_ex * (1.0 - exp(-dt * nu_ex))
-							end if
+						u2m = (um + u1m - 2.0_8/3.0_8 * nu * (u1m - u1mm))/2.0_8
+						u2p = (up + u1p - 2.0_8/3.0_8 * nu * (u1p - u1))/2.0_8
+						ff2%DistF(i, j, k) = u - nu * (-2 * upp + 7 * up - 7 * um + 2 * umm)/24.0_8 - &
+							3.0_8/8.0_8 * nu * (u2p - u2m) - omeg/24.0_8 * (upp - 4 * up + 6 * u - 4 * um + umm)
+							
+						if(ff2%DistF(i, j, k) < 0.0) ff2%DistF(i, j, k) = 0.0
+					
+						if(nu_ex > 0.0000001) then
+							ff2%DistF(i, j, k) = ff2%DistF(i, j, k) * exp(-dt * nu_ex) + N_ex/nu_ex * (1.0 - exp(-dt * nu_ex))
 						end if
 
 						if(ff2%DistF(i, j, k) < 0.0) ff2%DistF(i, j, k) = 0.0
 					end do ! j
 				end do! k
 			end do !  i
-
-			!! Уточняем функцию для нужных i
-			if(metod_ytochn) then
-			!!if(.False.) then
-				do st = 1, ff1%par_nv1
-					i = step_algoritm(st, step)
-					if(i == 0) EXIT
-					call Get_param_Vx(ff1, i, Vx)
-					do k = 3, ff1%par_n-2
-						do j = 1, ff1%par_nv2
-							if(Vx > 0.0) then
-								ff2%DistF(i, j, k) = ff3%DistF(i, j, k-1)  + QQ(i, j, k)
-							else
-								ff2%DistF(i, j, k) = ff3%DistF(i, j, k+1) + QQ(i, j, k)
-							end if
-							QQ(i, j, k) = 0.0_8
-							if(ff2%DistF(i, j, k) < 0.0) ff2%DistF(i, j, k) = 0.0
-						end do
-					end do
-
-					do k = 3, ff1%par_n-2
-						do j = 1, ff1%par_nv2
-							ff3%DistF(i, j, k) = ff2%DistF(i, j, k)
-						end do
-					end do
-				end do
-			end if
 
 			do i = 1, ff1%par_nv1
 				do k = 3, ff1%par_n-2
@@ -2359,7 +2276,7 @@ module Distfunc
 		Q1pHH = 0.0
 		Q1mHH = 0.0
 
-		if(.True.) then
+		if(.False.) then
 
 			! Для Q1pHH
 			if(.False.) then
@@ -2514,13 +2431,14 @@ module Distfunc
 
 	end subroutine Print_fx_k
 
-	subroutine Print_rho(f, name)
+	subroutine Print_rho(f, name, charac)
 		TYPE (DistF), intent(in) :: f
 		character(len=5), intent(in) :: name
+		character(len=1), intent(in) :: charac
 		integer :: i, j, k
 		real(8) :: S, Vx, Vr, ff, x, SS, SSS, Temp
 
-		open(1, file = "rho_" // name // ".txt")
+		open(1, file = charac // "_rho_" // name // ".txt")
 		write(1, *)  "TITLE = 'HP'  VARIABLES = x, nH, Vx, TH"
 
 		do k = 1, f%par_n
@@ -2562,16 +2480,30 @@ module Distfunc
 
 	end subroutine Print_rho
 
-	subroutine Print_GD(g, name, TT)
+	subroutine Print_GD_nu(name)
+		character(len=5), intent(in) :: name
+		integer :: i
+		real(8) :: x
+
+		open(1, file = "_NU_" // name // ".txt")
+		do i = 1, gd1%par_n - 1
+			x = (get_coordinat_yzel(i, gd1%par_L, gd1%par_R, gd1) + get_coordinat_yzel(i + 1, gd1%par_L, gd1%par_R, gd1))/2.0
+			WRITE (1, *) x, nu_all(i)/10.0
+		end do
+		close(1)
+	end subroutine Print_GD_nu
+
+	subroutine Print_GD(g, name, TT, charac)
 		TYPE (GD), intent(in out) :: g
 		character(len=5), intent(in) :: name
+		character(len=1), intent(in) :: charac
 		real(8), intent(in) :: TT
 		integer :: i
 		real(8) :: x, c0, Temp
 
 		c0 = sqrt(g%par_ggg * pl_p/pl_rho)
 
-		open(1, file = "GD_" // name // ".txt")
+		open(1, file = charac//"_GD_" // name // ".txt")
 		write(1, *) "TITLE = 'HP'  VARIABLES = X, RHO, U, P, Mach, Uteor, T"
 
 		do i = 1, g%par_n - 1
@@ -2612,8 +2544,11 @@ module Distfunc
 
 		close(1)
 
-		call Print_rho(f1, name)
-		call Print_GD(gd1, name, 1.0_8)
+		call Print_rho(f1, name, "1")
+		!call Print_rho(f2, name, "2")
+		call Print_GD(gd1, name, 1.0_8, "1")
+		call Print_GD(gd2, name, 1.0_8, "2")
+		call Print_GD_nu(name)
 
 	end subroutine Save_setka_bin
 

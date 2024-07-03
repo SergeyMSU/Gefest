@@ -5,13 +5,13 @@ module STORAGE
 	
 	real(8), parameter :: par_pi = acos(-1.0_8) 
     real(8), parameter :: par_sqrtpi = sqrt(par_pi)
-	real(8), parameter :: par_a_2 = 0.119268_8 
-	real(8), parameter :: RRR = 1.0_8  ! Для атомов правая граница
+	real(8), parameter :: par_a_2 = 0.13193_8 
+	real(8), parameter :: RRR = 2.0_8  ! Для атомов правая граница
 	real(8), parameter :: par_g_max = sqrt(6.0**2 + 4.0 * 3.0**2)    ! Ограничение относительной скорости
-	real(8), parameter :: KnHH = 0.125676    ! Ограничение относительной скорости
-	real(8), parameter :: KnHp = 1.18612    ! Ограничение относительной скорости
-	real(8), parameter :: QKnHp = 35.5837    ! Ограничение относительной скорости
-
+	real(8), parameter :: KnHH = 0.862973    ! Ограничение относительной скорости
+	real(8), parameter :: KnHp = 199.69    ! Ограничение относительной скорости
+	real(8), parameter :: QKnHp = 199.69    ! Ограничение относительной скорости
+ 
 	integer(4), parameter :: par_n = 1000
 	integer(4), parameter :: par_nv1 = 80   !! ДОЛЖНО БЫТЬ ЧЁТНЫМ  (если поменяем, нужно менять файл time_step)
 	integer(4), parameter :: par_nv2 = 40
@@ -29,6 +29,7 @@ module STORAGE
 
 	real(8), allocatable :: Q2(:)         ! Источники по перезарядке для плазмы
 	real(8), allocatable :: Q3(:)
+	real(8), allocatable :: nu_all(:)
 
 	real(8), allocatable :: Q1m(:, :, :)   ! Где сложный интегралл с функцией распределения водорода
 	real(8), allocatable :: Q1p(:, :, :)   ! Где в интеграле фунция распределения протонов
@@ -37,9 +38,13 @@ module STORAGE
 	real(8), allocatable :: Q1pHH(:, :, :)   ! Где в интеграле фунция распределения протонов
 
 
-	real(8) :: pl_rho = 1.0
+	real(8) :: pl_rho = 0.3
 	real(8) :: pl_u = 0.0
 	real(8) :: pl_p = 1.0
+
+	real(8) :: pl_rho2 = 1000.0! 20000.0
+	real(8) :: pl_u2 = 0.0
+	real(8) :: pl_p2 = 1.0
 
 	
 	TYPE DistF 
@@ -50,13 +55,13 @@ module STORAGE
 	
 		real(8) :: par_L = -2.0_8
 		real(8) :: par_R = RRR
-		real(8) :: par_Lv1 = -3.0_8! -3.2_8
+		real(8) :: par_Lv1 = -3.6_8! -3.2_8
 		real(8) :: par_Rv1 = 3.0_8
 		real(8) :: par_Lv2 = 0.0_8
 		real(8) :: par_Rv2 = 3.0_8
 		
 		real(8) :: par_Usr = 0.0_8! 2.54351_8
-		real(8) :: par_c = 0.258199_8
+		real(8) :: par_c = 0.01_8
 		real(8) :: par_nH = 1.0
 	
 		real(8), allocatable :: DistF(:, :, :)   ! Частицы (par_nv1, par_nv2, par_n) = V1, V2, X
@@ -66,8 +71,8 @@ module STORAGE
 	TYPE GD 
 		integer(4) :: par_n = 10000
 	
-		real(8) :: par_L = 0.0_8
-		real(8) :: par_R = 1.5_8! 10.0_8
+		real(8) :: par_L = -5.0_8
+		real(8) :: par_R = 5.0_8! 10.0_8
 		real(8) :: par_ggg = (5.0_8/3.0_8)
 		real(8) :: time_step
 		logical :: start = .True.
@@ -84,7 +89,9 @@ module STORAGE
 	TYPE (DistF):: f1
     TYPE (DistF):: f2
     TYPE (DistF):: f3
+    TYPE (DistF):: f4
     TYPE (GD):: gd1
+    TYPE (GD):: gd2
 
 	contains 
 
